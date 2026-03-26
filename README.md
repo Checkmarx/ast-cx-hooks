@@ -1,4 +1,4 @@
-# agenthooks
+# cxagenthooks
 
 A Go framework for building hooks that work across **all major AI coding agents** — with a single codebase.
 
