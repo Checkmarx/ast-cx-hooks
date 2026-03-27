@@ -32,7 +32,7 @@ jobs:
         if: ${{ github.event.inputs.version != '' }}
         run: |
           VERSION="${{ github.event.inputs.version }}"
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format: $VERSION"
             echo "Use format: vX.Y.Z (e.g. v1.2.3)"
             exit 1
@@ -56,7 +56,7 @@ jobs:
 
       # 📦 Create GitHub Release
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
         with:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           name: Checkmarx AST Hooks ${{ steps.tag_version.outputs.new_tag }}
