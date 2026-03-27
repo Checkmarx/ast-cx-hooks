@@ -1,0 +1,63 @@
+name: Go Module Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. v1.2.3). If empty, auto-bump will be used"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag & Publish Go Module
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+
+      - name: Install Go
+        uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
+        with:
+          go-version-file: go.mod
+
+      # 🔑 Validate version (only if provided)
+      - name: Validate version input
+        if: ${{ github.event.inputs.version != '' }}
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Use format: vX.Y.Z (e.g. v1.2.3)"
+            exit 1
+          fi
+
+      # 🔑 Tag Creation
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tag_prefix: v
+          custom_tag: ${{ github.event.inputs.version }}
+
+      # 📦 Verify Go module
+      - name: Verify Go module
+        run: |
+          go list -m all
+          go mod tidy
+          go mod verify
+
+      # 📦 Create GitHub Release
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_version.outputs.new_tag }}
+          name: Checkmarx AST Hooks ${{ steps.tag_version.outputs.new_tag }}
+          generate_release_notes: true
