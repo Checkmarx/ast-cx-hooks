@@ -33,3 +33,6 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.*
+
+# Go module checksum (managed by toolchain, not committed)
+go.sum
