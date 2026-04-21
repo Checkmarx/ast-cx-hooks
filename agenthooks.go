@@ -29,81 +29,135 @@
 package agenthooks
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/codec"
+	"github.com/CheckmarxDev/ast-cx-hooks/internal/dispatch"
+	"github.com/CheckmarxDev/ast-cx-hooks/lifecycle"
 )
 
-// RouteFunc is the type for handlers registered via AddRoute.
-type RouteFunc func()
+// =============================================================================
+// Routing core (re-exported from internal/dispatch)
+// =============================================================================
 
-var routes = map[string]RouteFunc{}
+// RouteFunc is the type for handlers registered via AddRoute.
+type RouteFunc = dispatch.RouteFunc
 
 // AddRoute registers fn under the given command name.
-// When Dispatch is called and os.Args[1] matches name, fn is invoked.
-func AddRoute(name string, fn RouteFunc) {
-	routes[name] = fn
-}
+func AddRoute(name string, fn RouteFunc) { dispatch.AddRoute(name, fn) }
 
 // Dispatch selects and runs the handler whose name matches os.Args[1].
-// If os.Args[1] is absent, the binary name is used instead.
-// Exits with code 1 if no matching handler is found.
-func Dispatch() {
-	name := resolveRouteName()
-	if fn, ok := routes[name]; ok {
-		fn()
-		return
-	}
-	fmt.Fprintf(os.Stderr, "agenthooks: no handler registered for %q\n", name)
-	fmt.Fprintln(os.Stderr, "available routes:")
-	for k := range routes {
-		fmt.Fprintf(os.Stderr, "  %s\n", k)
-	}
-	os.Exit(1)
-}
+func Dispatch() { dispatch.Dispatch() }
 
 // Process reads JSON from stdin, passes it to handler, and writes the result to stdout.
 // Any stdin parse error causes a graceful exit (code 0) so a bad payload never blocks an agent.
-func Process[I any, O any](handler func(I) O) {
-	var in I
-	if err := codec.DecodeStdin(&in); err != nil {
-		os.Exit(0)
-	}
-	out := handler(in)
-	if err := codec.EncodeStdout(out); err != nil {
-		os.Exit(0)
-	}
-}
+func Process[I, O any](handler func(I) O) { dispatch.Process(handler) }
 
-// ProcessE is like Process but allows the handler to signal a blocking error.
-// When handler returns a non-nil error, agenthooks writes the message to stderr
-// and exits with code 2, which causes supporting agents to surface the message
-// and block the pending action.
-func ProcessE[I any, O any](handler func(I) (O, error)) {
-	var in I
-	if err := codec.DecodeStdin(&in); err != nil {
-		os.Exit(0)
-	}
-	out, err := handler(in)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(2)
-	}
-	if err := codec.EncodeStdout(out); err != nil {
-		os.Exit(0)
-	}
-}
+// ProcessE is like Process but allows the handler to signal a blocking error (exit 2).
+func ProcessE[I, O any](handler func(I) (O, error)) { dispatch.ProcessE(handler) }
 
 // ClearRoutes removes all registered handlers. Intended for use in tests.
-func ClearRoutes() {
-	routes = map[string]RouteFunc{}
-}
+func ClearRoutes() { dispatch.ClearRoutes() }
 
-func resolveRouteName() string {
-	if len(os.Args) > 1 {
-		return os.Args[1]
-	}
-	return filepath.Base(os.Args[0])
-}
+// =============================================================================
+// Agent and tool constants (re-exported from lifecycle)
+// =============================================================================
+
+// AgentID identifies which AI coding agent triggered the hook.
+type AgentID = lifecycle.AgentID
+
+const (
+	AgentClaude   = lifecycle.AgentClaude
+	AgentCursor   = lifecycle.AgentCursor
+	AgentWindsurf = lifecycle.AgentWindsurf
+	AgentDroid    = lifecycle.AgentDroid
+	AgentGemini   = lifecycle.AgentGemini
+)
+
+// ToolKind classifies what kind of action a BeforeToolCall handler is gating.
+type ToolKind = lifecycle.ToolKind
+
+const (
+	ToolKindShell   = lifecycle.ToolKindShell
+	ToolKindMCP     = lifecycle.ToolKindMCP
+	ToolKindBuiltin = lifecycle.ToolKindBuiltin
+)
+
+// =============================================================================
+// WhenAgentIdle (re-exported from lifecycle)
+// =============================================================================
+
+type AgentIdleEvent = lifecycle.AgentIdleEvent
+type IdleVerdict = lifecycle.IdleVerdict
+type AgentIdleFunc = lifecycle.AgentIdleFunc
+
+// Resume allows the agent to stop normally.
+func Resume() IdleVerdict { return lifecycle.Resume() }
+
+// Interrupt prevents the agent from stopping and sends feedback for the next iteration.
+func Interrupt(feedback string) IdleVerdict { return lifecycle.Interrupt(feedback) }
+
+// WhenAgentIdle registers a unified handler for "agent finished responding" events
+// on all five platforms.
+func WhenAgentIdle(fn AgentIdleFunc) { lifecycle.WhenAgentIdle(fn) }
+
+// =============================================================================
+// BeforeToolCall (re-exported from lifecycle)
+// =============================================================================
+
+type ToolCallEvent = lifecycle.ToolCallEvent
+type ToolVerdict = lifecycle.ToolVerdict
+type ToolCallFunc = lifecycle.ToolCallFunc
+
+// Allow permits the tool call with no message.
+func Allow() ToolVerdict { return lifecycle.Allow() }
+
+// AllowWithNote permits the tool call and surfaces a note.
+func AllowWithNote(msg string) ToolVerdict { return lifecycle.AllowWithNote(msg) }
+
+// Deny blocks the tool call and sends a reason to the agent.
+func Deny(reason string) ToolVerdict { return lifecycle.Deny(reason) }
+
+// AskUser blocks pending user confirmation and explains why.
+func AskUser(reason string) ToolVerdict { return lifecycle.AskUser(reason) }
+
+// BeforeToolCall registers a unified handler for pre-execution events on all platforms.
+func BeforeToolCall(fn ToolCallFunc) { lifecycle.BeforeToolCall(fn) }
+
+// =============================================================================
+// AfterFileWrite (re-exported from lifecycle)
+// =============================================================================
+
+type FileDiff = lifecycle.FileDiff
+type FileWriteEvent = lifecycle.FileWriteEvent
+type FileWriteVerdict = lifecycle.FileWriteVerdict
+type FileWriteFunc = lifecycle.FileWriteFunc
+
+// AcceptWrite acknowledges the file write with no feedback.
+func AcceptWrite() FileWriteVerdict { return lifecycle.AcceptWrite() }
+
+// RejectWrite injects a rejection message into the agent after the write.
+func RejectWrite(reason string) FileWriteVerdict { return lifecycle.RejectWrite(reason) }
+
+// AnnotateWrite appends a note the agent will see after the write.
+func AnnotateWrite(note string) FileWriteVerdict { return lifecycle.AnnotateWrite(note) }
+
+// AfterFileWrite registers a unified handler for post-file-edit events on all platforms.
+func AfterFileWrite(fn FileWriteFunc) { lifecycle.AfterFileWrite(fn) }
+
+// =============================================================================
+// BeforePrompt (re-exported from lifecycle)
+// =============================================================================
+
+type PromptEvent = lifecycle.PromptEvent
+type PromptVerdict = lifecycle.PromptVerdict
+type PromptFunc = lifecycle.PromptFunc
+
+// AcceptPrompt allows the prompt through.
+func AcceptPrompt() PromptVerdict { return lifecycle.AcceptPrompt() }
+
+// RejectPrompt blocks the prompt submission and shows a message to the user.
+func RejectPrompt(msg string) PromptVerdict { return lifecycle.RejectPrompt(msg) }
+
+// EnrichPrompt allows the prompt and injects additional context into the agent.
+func EnrichPrompt(ctx string) PromptVerdict { return lifecycle.EnrichPrompt(ctx) }
+
+// BeforePrompt registers a unified handler for prompt-submission events on all platforms.
+func BeforePrompt(fn PromptFunc) { lifecycle.BeforePrompt(fn) }

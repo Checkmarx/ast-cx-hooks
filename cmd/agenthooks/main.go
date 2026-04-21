@@ -78,6 +78,7 @@ func runInstall(binaryPath string) error {
 		{"Cursor", installCursor},
 		{"Windsurf Cascade", installWindsurf},
 		{"Factory Droid", installDroid},
+		{"Gemini CLI", installGemini},
 	}
 
 	for _, item := range installFns {
@@ -136,6 +137,23 @@ func installDroid(home, binary string) error {
 		hooks["PostToolUse"] = hookEntries(binary, "droid-after-file-write")
 		hooks["UserPromptSubmit"] = hookEntries(binary, "droid-user-prompt-submit")
 	})
+}
+
+// installGemini writes hook configuration to ~/.gemini/settings.json.
+func installGemini(home, binary string) error {
+	path := filepath.Join(home, ".gemini", "settings.json")
+	return patchJSONFile(path, func(m map[string]any) {
+		hooks := ensureMap(m, "hooks")
+		hooks["BeforeAgent"] = geminiHookEntry(binary, "gemini-before-agent")
+		hooks["BeforeTool"]  = geminiHookEntry(binary, "gemini-before-tool")
+		hooks["AfterTool"]   = geminiHookEntry(binary, "gemini-after-file-tool")
+		hooks["AfterAgent"]  = geminiHookEntry(binary, "gemini-after-agent")
+	})
+}
+
+// geminiHookEntry returns a Gemini-style hook entry array (no "type" field).
+func geminiHookEntry(binary, subcmd string) []map[string]any {
+	return []map[string]any{{"command": binary + " " + subcmd}}
 }
 
 // hookEntries returns a Claude/Droid-style hook entry array.

@@ -103,7 +103,6 @@ Fires after the agent writes or edits a file. Use it to run linters, scanners, o
 ```go
 agenthooks.AfterFileWrite(func(e agenthooks.FileWriteEvent) agenthooks.FileWriteVerdict {
     if strings.HasSuffix(e.FilePath, ".go") {
-        // Run a linter, scanner, etc.
         return agenthooks.AnnotateWrite("Reminder: run go vet before committing.")
     }
     return agenthooks.AcceptWrite()
@@ -211,6 +210,7 @@ This automatically writes the correct configuration into each agent's settings f
 - `~/.cursor/hooks.json`
 - `~/.codeium/windsurf/hooks.json`
 - `~/.factory/settings.json`
+- `~/.gemini/settings.json`
 
 ## Complete Example
 
@@ -244,6 +244,14 @@ func main() {
             return agenthooks.Resume()
         }
         return agenthooks.Interrupt("Please run all tests before finishing.")
+    })
+
+    // React to file edits
+    agenthooks.AfterFileWrite(func(e agenthooks.FileWriteEvent) agenthooks.FileWriteVerdict {
+        if strings.HasSuffix(e.FilePath, ".go") {
+            return agenthooks.AnnotateWrite("Remember to run go vet.")
+        }
+        return agenthooks.AcceptWrite()
     })
 
     // Block prompts with secrets
@@ -282,7 +290,7 @@ echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"},"session_id":"test
 echo '{"status":"completed","loop_count":0,"conversation_id":"test"}' | ./myhook cursor-stop
 
 # Test a Gemini CLI hook
-echo '{"tool_name":"shell","tool_input":{"command":"ls"},"session_id":"test","cwd":"/tmp"}' | ./myhook gemini-before-tool
+echo '{"tool_name":"execute_bash","tool_input":{"command":"ls"},"session_id":"test","cwd":"/tmp"}' | ./myhook gemini-before-tool
 ```
 
 The first argument is the **route name** — it tells the binary which handler to invoke.
@@ -318,19 +326,13 @@ The first argument is the **route name** — it tells the binary which handler t
 
 ### Testing with Gemini CLI
 
-1. Build and install.
-2. Currently the `install` command does not auto-configure Gemini CLI. Manually add hooks to `~/.gemini/settings.json`:
-   ```json
-   {
-     "hooks": {
-       "BeforeTool": [{ "command": "/path/to/myhook gemini-before-tool" }],
-       "AfterAgent": [{ "command": "/path/to/myhook gemini-after-agent" }],
-       "BeforeAgent": [{ "command": "/path/to/myhook gemini-before-agent" }],
-       "AfterTool": [{ "command": "/path/to/myhook gemini-after-file-tool" }]
-     }
-   }
+1. Build and install:
+   ```bash
+   go build -o myhook .
+   go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
    ```
-3. Run `gemini` — your hooks are active.
+2. Open Gemini CLI — hooks are configured in `~/.gemini/settings.json`.
+3. Note: Gemini pre-hooks block via **exit code 2**.
 
 ### Unit Testing Your Hooks
 
@@ -349,20 +351,88 @@ func TestDenyDangerousCommands(t *testing.T) {
 }
 ```
 
+## Checkmarx MCP Server
+
+The `mcp/` package provides a local **Model Context Protocol (MCP) server** that exposes Checkmarx security guardrails as tools callable by any MCP-compatible agent.
+
+### Starting the MCP server
+
+```bash
+cx mcp
+```
+
+The server runs over **stdio** and is compatible with Claude Desktop, Cursor, VS Code Copilot, and Windsurf.
+
+### Configuration (Claude Desktop)
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "checkmarx": { "command": "cx", "args": ["mcp"] }
+  }
+}
+```
+
+### Available MCP tools
+
+| Tool | Input | Output | Purpose |
+|------|-------|--------|---------|
+| `cx_shell_guard` | `{"command": "..."}` | `{"allowed": bool, "reason": "..."}` | Check a shell command against the blocklist policy |
+| `cx_prompt_guard` | `{"text": "..."}` | `{"clean": bool, "blocked": bool, "reason": "..."}` | Scan a prompt for secrets, policy patterns, and restricted paths |
+
+The server injects instructions into the AI's system prompt to ensure it calls the guard tools before executing commands or sending external data. Both tools **fail-open** — if the policy file is missing or the license check fails, all requests are allowed.
+
+### Policy file
+
+Guards read policy from `~/.checkmarx/policyhooks1.json`. See [guardrails/policy.go](guardrails/policy.go) for the full schema. Example:
+
+```json
+{
+  "default_policy": {
+    "blocklist_tools": {
+      "enabled": true,
+      "tools": [
+        { "name": "curl", "os": ["linux", "darwin"], "category": "network", "risk": "data-exfiltration" }
+      ]
+    },
+    "context_policy": {
+      "enabled": true,
+      "content_scanning": {
+        "enabled": true,
+        "patterns": [
+          { "id": "no-prod-urls", "pattern": "https://prod\\.example\\.com", "description": "Production URLs" }
+        ]
+      }
+    }
+  }
+}
+```
+
 ## Architecture
 
 ```
 github.com/CheckmarxDev/ast-cx-hooks
-├── agenthooks.go      # Core API: AddRoute, Dispatch, Process, ProcessE
-├── unified.go         # Unified hooks: WhenAgentIdle, BeforeToolCall, etc.
-├── claude/            # Claude Code types, events & response helpers
-├── cursor/            # Cursor IDE types, events & response helpers
-├── windsurf/          # Windsurf Cascade types, events & response helpers
-├── droid/             # Factory Droid types, events & response helpers
-├── gemini/            # Gemini CLI types, events & response helpers
-├── internal/codec/    # JSON stdin/stdout serialization
-├── internal/scaffold/ # Templates and generator for `agenthooks init`
-└── cmd/agenthooks/    # CLI tool: init, install, and build commands
+├── agenthooks.go          # Public API: re-exports from lifecycle/ and internal/dispatch/
+├── lifecycle/             # Unified agent lifecycle hook handlers (all 5 agents)
+│   ├── constants.go       #   AgentID and ToolKind constants
+│   ├── idle.go            #   WhenAgentIdle — agent finished responding
+│   ├── tool.go            #   BeforeToolCall — before tool/command executes
+│   ├── filewrite.go       #   AfterFileWrite — after file is written/edited
+│   └── prompt.go          #   BeforePrompt — before user prompt is processed
+├── claude/                # Claude Code event types & response helpers
+├── cursor/                # Cursor IDE event types & response helpers
+├── windsurf/              # Windsurf Cascade event types & response helpers
+├── droid/                 # Factory Droid event types & response helpers
+├── gemini/                # Gemini CLI event types & response helpers
+├── guardrails/            # Security policy engine (shell blocklist, prompt scanning)
+├── cx/                    # Checkmarx guardrail registration & per-agent installers
+├── mcp/                   # Local MCP server exposing guardrails as tools
+├── internal/dispatch/     # Core routing: AddRoute, Dispatch, Process, ProcessE
+├── internal/codec/        # JSON stdin/stdout serialization
+├── internal/scaffold/     # Templates and generator for `agenthooks init`
+└── cmd/agenthooks/        # CLI tool: init, install, and build commands
 ```
 
 ### How it works
@@ -400,5 +470,3 @@ github.com/CheckmarxDev/ast-cx-hooks
 | `e.IsLooping()` | `AgentIdleEvent` | Detects infinite loops |
 | `e.IsShell()` | `ToolCallEvent` | Is this a shell command? |
 | `e.IsMCP()` | `ToolCallEvent` | Is this an MCP tool call? |
-
-

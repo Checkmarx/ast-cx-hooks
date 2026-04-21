@@ -35,10 +35,12 @@ func AcceptTurn() BeforeAgentResult {
 	return BeforeAgentResult{}
 }
 
-// RejectTurn blocks the agent turn; reason is shown to the user.
+// RejectTurn blocks the agent turn and erases the prompt from context.
+// Uses decision:"deny" per the Gemini CLI spec; continue:false would only
+// save the prompt to history rather than truly rejecting it.
 func RejectTurn(reason string) BeforeAgentResult {
 	return BeforeAgentResult{
-		ResultBase: ResultBase{Proceed: boolPtr(false), Reason: reason},
+		ResultBase: ResultBase{Decision: "deny", Reason: reason},
 	}
 }
 
@@ -54,13 +56,6 @@ func EnrichTurn(ctx string) BeforeAgentResult {
 // AcceptResponse accepts the agent's response and ends the turn.
 func AcceptResponse() AfterAgentResult {
 	return AfterAgentResult{}
-}
-
-// RetryWithFeedback rejects the response; reason is fed back as retry context.
-func RetryWithFeedback(reason string) AfterAgentResult {
-	return AfterAgentResult{
-		ResultBase: ResultBase{Proceed: boolPtr(false), Reason: reason},
-	}
 }
 
 // --- SessionStart responses ---

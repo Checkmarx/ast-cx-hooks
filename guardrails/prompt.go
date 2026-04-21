@@ -1,0 +1,183 @@
+package guardrails
+
+import (
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"strings"
+
+	scanner "github.com/checkmarx/2ms/v3/pkg"
+)
+
+// filePathRegexps extracts file/directory paths from free-form text such as user prompts.
+// Patterns are tried in order; each must produce the path in the last capture group (or m[0]).
+var filePathRegexps = []*regexp.Regexp{
+	// @-mention (Cursor/IDE file reference): @.env  @src/config.js  @/absolute/path
+	regexp.MustCompile(`@([^\s"'` + "`" + `<>|*?,;:]+)`),
+	// Unix absolute: /path/to/file
+	regexp.MustCompile(`(?:^|[\s"'` + "`" + `])(/[^\s"'` + "`" + `<>|*?]+)`),
+	// Windows absolute: C:\path or C:/path
+	regexp.MustCompile(`[A-Za-z]:[\\\/][^\s"'` + "`" + `<>|*?]+`),
+	// Explicit relative: ./foo or ../foo
+	regexp.MustCompile(`(?:^|[\s"'` + "`" + `])(\.{1,2}/[^\s"'` + "`" + `<>|*?]+)`),
+	// Bare dotfile or named file with extension, preceded by space/@/quote/backtick
+	// Matches: .env  .env.local  credentials.json  secrets.yaml  id_rsa
+	regexp.MustCompile(`(?:^|[\s"'` + "`" + `@])(\.[a-zA-Z0-9][a-zA-Z0-9_.-]*|[a-zA-Z0-9_-]+\.[a-zA-Z0-9][a-zA-Z0-9_.-]*)(?:[\s"'` + "`" + `,;:!?]|$)`),
+}
+
+// extractFilePaths returns all file/directory paths found in text, deduplicated.
+func extractFilePaths(text string) []string {
+	seen := map[string]struct{}{}
+	var paths []string
+	for _, re := range filePathRegexps {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			p := strings.TrimSpace(m[len(m)-1])
+			if _, ok := seen[p]; !ok {
+				seen[p] = struct{}{}
+				paths = append(paths, p)
+			}
+		}
+	}
+	return paths
+}
+
+// severityFromValidation maps 2ms validation status to a severity label.
+func severityFromValidation(status string) string {
+	switch status {
+	case "Valid":
+		return "Critical"
+	case "Invalid":
+		return "Medium"
+	default: // "Unknown" or anything else
+		return "High"
+	}
+}
+
+// ScanForSecrets runs the 2ms secret scanner on arbitrary text (e.g. a prompt).
+// Returns a human-readable rejection reason, or "" when the text is clean.
+func ScanForSecrets(text string) string {
+	content := text
+	report, err := scanner.NewScanner().Scan(
+		[]scanner.ScanItem{{Content: &content, Source: "prompt"}},
+		scanner.ScanConfig{WithValidation: true},
+	)
+	if err != nil {
+		return "" // fail-open: scanner error should not block the developer
+	}
+
+	var findings []string
+	for _, group := range report.Results {
+		for _, secret := range group {
+			severity := severityFromValidation(string(secret.ValidationStatus))
+			findings = append(findings, fmt.Sprintf("  - %s (severity: %s)", secret.RuleID, severity))
+		}
+	}
+	if len(findings) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Blocked by Checkmarx: prompt contains %d secret(s):\n%s\nRemove the secrets and try again.",
+		len(findings), strings.Join(findings, "\n"),
+	)
+}
+
+// ScanForPolicyPatterns runs the custom regex patterns defined in the policy's
+// context_policy.content_scanning section against the prompt text.
+// Returns a human-readable rejection reason, or "" when the text is clean.
+func ScanForPolicyPatterns(text string) string {
+	policy := LoadPolicy()
+	if policy == nil {
+		return ""
+	}
+	cp := policy.DefaultPolicy.ContextPolicy
+	if !cp.Enabled || !cp.ContentScanning.Enabled {
+		return ""
+	}
+
+	var findings []string
+	for _, p := range cp.ContentScanning.Patterns {
+		re, err := regexp.Compile(p.Pattern)
+		if err != nil {
+			continue // skip malformed patterns — fail-open
+		}
+		if re.MatchString(text) {
+			findings = append(findings, fmt.Sprintf("  - %s: %s", p.ID, p.Description))
+		}
+	}
+	if len(findings) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Blocked by Checkmarx: prompt contains sensitive content detected by policy:\n%s\nRemove the sensitive content and try again.%s",
+		strings.Join(findings, "\n"), DenyMessage,
+	)
+}
+
+// CheckPromptPaths checks file/directory paths mentioned in a prompt against
+// the organization's restricted_files and restricted_directories policy.
+// Returns (true, reason) if blocked, (false, "") if allowed.
+func CheckPromptPaths(text string) (bool, string) {
+	restrictedFiles, restrictedDirs := LoadRestrictedPaths()
+	if len(restrictedFiles) == 0 && len(restrictedDirs) == 0 {
+		return false, ""
+	}
+
+	files := extractFilePaths(text)
+	seen := map[string]struct{}{}
+	var violations []string
+
+	for _, file := range files {
+		fileLower := strings.ToLower(filepath.ToSlash(file))
+
+		// restricted_files: exact match, basename match, or suffix match
+		for _, rf := range restrictedFiles {
+			rfLower := strings.ToLower(filepath.ToSlash(rf))
+			if fileLower == rfLower ||
+				filepath.Base(fileLower) == rfLower ||
+				strings.HasSuffix(fileLower, "/"+rfLower) {
+				if _, ok := seen[file]; !ok {
+					seen[file] = struct{}{}
+					violations = append(violations, fmt.Sprintf("  - %s (restricted file)", file))
+				}
+			}
+		}
+
+		// restricted_directories: prefix match
+		for _, rd := range restrictedDirs {
+			rdLower := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rd), "/"))
+			if fileLower == rdLower || strings.HasPrefix(fileLower, rdLower+"/") {
+				if _, ok := seen[file]; !ok {
+					seen[file] = struct{}{}
+					violations = append(violations, fmt.Sprintf("  - %s (restricted directory)", file))
+				}
+			}
+		}
+	}
+
+	if len(violations) == 0 {
+		return false, ""
+	}
+	return true, fmt.Sprintf(
+		"Blocked by Checkmarx: the following files or folders are restricted by policy:\n%s\nContact your administrator if you need access to these resources.%s",
+		strings.Join(violations, "\n"), DenyMessage,
+	)
+}
+
+// ScanPrompt runs all three prompt guardrails in order:
+//  1. 2ms secret scanner    — detects structured secrets (API keys, tokens, PEM blocks)
+//  2. Policy content scanner — detects sensitive content via custom regex patterns
+//  3. Path guardrail        — blocks prompts referencing restricted files or directories
+//
+// Returns a human-readable rejection reason, or "" when the text is clean.
+func ScanPrompt(text string) string {
+	if reason := ScanForSecrets(text); reason != "" {
+		return reason
+	}
+	if reason := ScanForPolicyPatterns(text); reason != "" {
+		return reason
+	}
+	if blocked, reason := CheckPromptPaths(text); blocked {
+		return reason
+	}
+	return ""
+}

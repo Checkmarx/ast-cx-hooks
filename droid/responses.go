@@ -23,6 +23,15 @@ func ApproveToolUse() PreToolUseResult {
 	}
 }
 
+// ApproveToolUseWithNote allows the tool call and surfaces a note to the agent.
+func ApproveToolUseWithNote(note string) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{
+			EventName: "PreToolUse", Decision: "allow", DecisionReason: note,
+		},
+	}
+}
+
 // DenyToolUse blocks the tool call and sends reason to Droid.
 func DenyToolUse(reason string) PreToolUseResult {
 	return PreToolUseResult{
