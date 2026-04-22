@@ -45,7 +45,13 @@ Transport: stdio (compatible with Claude Desktop, Cursor, VS Code Copilot, Winds
 }
 
 func run(version string, licensed func() bool) error {
-	shellGuard := guardrails.CheckShellCommand
+	// Adapt CheckShellCommand (command, workDir) → (blocked, needsConfirm, reason)
+	// to the simpler (command) → (blocked, reason) signature the MCP tool expects.
+	// workDir is not available in the MCP call context, so we pass an empty string.
+	shellGuard := func(cmd string) (bool, string) {
+		blocked, _, reason := guardrails.CheckShellCommand(cmd, "")
+		return blocked, reason
+	}
 	promptGuard := guardrails.ScanPrompt
 	if !licensed() {
 		shellGuard = func(string) (bool, string) { return false, "" }

@@ -34,5 +34,3 @@ Thumbs.db
 .env
 .env.*
 
-# Go module checksum (managed by toolchain, not committed)
-go.sum

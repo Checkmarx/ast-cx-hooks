@@ -115,6 +115,10 @@ func ScanForPolicyPatterns(text string) string {
 
 // CheckPromptPaths checks file/directory paths mentioned in a prompt against
 // the organization's restricted_files and restricted_directories policy.
+//
+// Precedence: restricted always wins over allowed. A path that matches both a
+// restricted and an allowed list is still blocked.
+//
 // Returns (true, reason) if blocked, (false, "") if allowed.
 func CheckPromptPaths(text string) (bool, string) {
 	restrictedFiles, restrictedDirs := LoadRestrictedPaths()
@@ -129,7 +133,7 @@ func CheckPromptPaths(text string) (bool, string) {
 	for _, file := range files {
 		fileLower := strings.ToLower(filepath.ToSlash(file))
 
-		// restricted_files: exact match, basename match, or suffix match
+		// restricted_files: exact match, basename match, or suffix match.
 		for _, rf := range restrictedFiles {
 			rfLower := strings.ToLower(filepath.ToSlash(rf))
 			if fileLower == rfLower ||
@@ -142,7 +146,7 @@ func CheckPromptPaths(text string) (bool, string) {
 			}
 		}
 
-		// restricted_directories: prefix match
+		// restricted_directories: prefix match.
 		for _, rd := range restrictedDirs {
 			rdLower := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rd), "/"))
 			if fileLower == rdLower || strings.HasPrefix(fileLower, rdLower+"/") {
@@ -163,10 +167,66 @@ func CheckPromptPaths(text string) (bool, string) {
 	)
 }
 
-// ScanPrompt runs all three prompt guardrails in order:
-//  1. 2ms secret scanner    — detects structured secrets (API keys, tokens, PEM blocks)
-//  2. Policy content scanner — detects sensitive content via custom regex patterns
-//  3. Path guardrail        — blocks prompts referencing restricted files or directories
+// CheckBlockedExtensions rejects prompts that reference files with a blocked extension
+// (e.g. .env, .pem, .key). Returns a rejection reason, or "" when the prompt is clean.
+func CheckBlockedExtensions(text string) string {
+	extensions := LoadBlockedExtensions()
+	if len(extensions) == 0 {
+		return ""
+	}
+	extSet := make(map[string]struct{}, len(extensions))
+	for _, e := range extensions {
+		extSet[strings.ToLower(e)] = struct{}{}
+	}
+
+	seen := map[string]struct{}{}
+	var hits []string
+	for _, p := range extractFilePaths(text) {
+		ext := strings.ToLower(filepath.Ext(p))
+		if ext == "" {
+			continue
+		}
+		if _, ok := extSet[ext]; !ok {
+			continue
+		}
+		if _, already := seen[p]; already {
+			continue
+		}
+		seen[p] = struct{}{}
+		hits = append(hits, fmt.Sprintf("  - %s (extension %s)", p, ext))
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Blocked by Checkmarx: prompt references files with blocked extensions:\n%s\nThese file types must not enter the AI context.%s",
+		strings.Join(hits, "\n"), DenyMessage,
+	)
+}
+
+// CheckFilesLimits rejects prompts that reference more files than the policy allows.
+// Returns a rejection reason, or "" when the prompt is within the limit.
+func CheckFilesLimits(text string) string {
+	limits := LoadFilesLimits()
+	if limits == nil || limits.MaxFileCount <= 0 {
+		return ""
+	}
+	paths := extractFilePaths(text)
+	if len(paths) <= limits.MaxFileCount {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Blocked by Checkmarx: prompt references %d files, exceeding the policy limit of %d.%s",
+		len(paths), limits.MaxFileCount, DenyMessage,
+	)
+}
+
+// ScanPrompt runs all prompt guardrails in order:
+//  1. 2ms secret scanner      — detects structured secrets (API keys, tokens, PEM blocks)
+//  2. Policy content scanner  — detects sensitive content via custom regex patterns
+//  3. Path guardrail          — blocks prompts referencing restricted files/directories
+//  4. Blocked extensions      — blocks prompts referencing files with blocked extensions
+//  5. Files-limits guardrail  — rejects prompts that reference too many files
 //
 // Returns a human-readable rejection reason, or "" when the text is clean.
 func ScanPrompt(text string) string {
@@ -177,6 +237,12 @@ func ScanPrompt(text string) string {
 		return reason
 	}
 	if blocked, reason := CheckPromptPaths(text); blocked {
+		return reason
+	}
+	if reason := CheckBlockedExtensions(text); reason != "" {
+		return reason
+	}
+	if reason := CheckFilesLimits(text); reason != "" {
 		return reason
 	}
 	return ""

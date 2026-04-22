@@ -10,19 +10,27 @@ func cxWhenAgentIdle(_ agenthooks.AgentIdleEvent) agenthooks.IdleVerdict {
 	return agenthooks.Resume()
 }
 
-// cxBeforeToolCall gates shell execution against the organization's blocklist.
+// cxBeforeToolCall gates shell execution against the organization's blacklist and tool rules.
 func cxBeforeToolCall(ev agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
 	if !ev.IsShell() {
 		return agenthooks.Allow()
 	}
-	if blocked, reason := guardrails.CheckShellCommand(ev.Command); blocked {
-		return agenthooks.Deny(reason)
+	blocked, needsConfirm, reason := guardrails.CheckShellCommand(ev.Command, ev.WorkDir)
+	if !blocked {
+		return agenthooks.Allow()
 	}
-	return agenthooks.Allow()
+	if needsConfirm {
+		return agenthooks.AskUser(reason)
+	}
+	return agenthooks.Deny(reason)
 }
 
-// cxAfterFileWrite: react to file edits. Nothing to enforce yet.
+// cxAfterFileWrite counts each file write against blast_radius_limit.threshold.
+// Once the session's file-write count exceeds the threshold, further writes are rejected.
 func cxAfterFileWrite(_ agenthooks.FileWriteEvent) agenthooks.FileWriteVerdict {
+	if blocked, reason := guardrails.CheckAndIncrementBlastRadius(); blocked {
+		return agenthooks.RejectWrite(reason)
+	}
 	return agenthooks.AcceptWrite()
 }
 
