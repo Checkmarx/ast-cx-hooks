@@ -42,6 +42,9 @@ func cxBeforePrompt(ev agenthooks.PromptEvent) agenthooks.PromptVerdict {
 	if reason := guardrails.ScanPrompt(ev.Text); reason != "" {
 		return agenthooks.RejectPrompt(reason)
 	}
+	if reason := guardrails.ScanReferencedFiles(ev.Text, ev.WorkspaceRoots); reason != "" {
+		return agenthooks.RejectPrompt(reason)
+	}
 	return agenthooks.AcceptPrompt()
 }
 

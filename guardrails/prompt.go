@@ -2,12 +2,18 @@ package guardrails
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	scanner "github.com/checkmarx/2ms/v3/pkg"
 )
+
+// defaultReferencedFileMaxBytes caps per-file reads when the policy does not
+// configure files_limits.max_file_size_kb. 1 MB is well above any realistic
+// config/source file while preventing accidental reads of large binaries.
+const defaultReferencedFileMaxBytes = 1 << 20
 
 // filePathRegexps extracts file/directory paths from free-form text such as user prompts.
 // Patterns are tried in order; each must produce the path in the last capture group (or m[0]).
@@ -78,6 +84,116 @@ func ScanForSecrets(text string) string {
 	return fmt.Sprintf(
 		"Blocked by Checkmarx: prompt contains %d secret(s):\n%s\nRemove the secrets and try again.",
 		len(findings), strings.Join(findings, "\n"),
+	)
+}
+
+// resolveReferencedFile returns an absolute path to a readable regular file for
+// the given prompt-referenced path, or "" if the path cannot be resolved to an
+// existing file within the known workspace roots.
+//
+// Absolute paths are used as-is; relative paths are tried against each
+// workspace root in order. The first match that resolves to a regular file
+// wins. Directories, symlinks to directories, and missing entries return "".
+func resolveReferencedFile(p string, workspaceRoots []string) string {
+	tryStat := func(path string) string {
+		info, err := os.Stat(path)
+		if err != nil {
+			return ""
+		}
+		if !info.Mode().IsRegular() {
+			return ""
+		}
+		return path
+	}
+
+	if filepath.IsAbs(p) {
+		return tryStat(p)
+	}
+	// Cursor sometimes reports Windows roots as "/c:/foo"; normalise before joining.
+	for _, root := range workspaceRoots {
+		normalized := NormalizeWorkspaceRoot(root)
+		if normalized == "" {
+			continue
+		}
+		if resolved := tryStat(filepath.Join(normalized, p)); resolved != "" {
+			return resolved
+		}
+	}
+	return ""
+}
+
+// ScanReferencedFiles resolves file paths mentioned in text against the given
+// workspace roots, reads each one, and runs the 2ms secret scanner over its
+// contents. Returns a human-readable rejection reason that lists findings per
+// file, or "" when no referenced file contains secrets.
+//
+// Missing files, directories, and files that exceed the configured size cap
+// are silently skipped — this is a best-effort guardrail, not a filesystem
+// audit, and must not block the developer on unrelated I/O errors.
+func ScanReferencedFiles(text string, workspaceRoots []string) string {
+	paths := extractFilePaths(text)
+	if len(paths) == 0 {
+		return ""
+	}
+
+	maxBytes := int64(defaultReferencedFileMaxBytes)
+	if limits := LoadFilesLimits(); limits != nil && limits.MaxFileSizeKB > 0 {
+		maxBytes = int64(limits.MaxFileSizeKB) * 1024
+	}
+
+	seen := map[string]struct{}{}
+	var perFile []string
+	sc := scanner.NewScanner()
+
+	for _, p := range paths {
+		resolved := resolveReferencedFile(p, workspaceRoots)
+		if resolved == "" {
+			continue
+		}
+		if _, dup := seen[resolved]; dup {
+			continue
+		}
+		seen[resolved] = struct{}{}
+
+		info, err := os.Stat(resolved)
+		if err != nil || info.Size() > maxBytes {
+			continue
+		}
+
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			continue
+		}
+		content := string(data)
+
+		report, err := sc.Scan(
+			[]scanner.ScanItem{{Content: &content, Source: resolved}},
+			scanner.ScanConfig{WithValidation: true},
+		)
+		if err != nil {
+			continue // fail-open per scanner
+		}
+
+		var findings []string
+		for _, group := range report.Results {
+			for _, secret := range group {
+				severity := severityFromValidation(string(secret.ValidationStatus))
+				findings = append(findings, fmt.Sprintf("    - %s (severity: %s)", secret.RuleID, severity))
+			}
+		}
+		if len(findings) == 0 {
+			continue
+		}
+		perFile = append(perFile,
+			fmt.Sprintf("  %s (%d secret(s)):\n%s", p, len(findings), strings.Join(findings, "\n")))
+	}
+
+	if len(perFile) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Blocked by Checkmarx: referenced file(s) contain secrets:\n%s\nRemove the secrets from these files or remove the references from your prompt.%s",
+		strings.Join(perFile, "\n"), DenyMessage,
 	)
 }
 
