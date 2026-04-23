@@ -669,6 +669,262 @@ func TestCheckPromptPaths_CleanPrompt(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// Glob pattern support (doublestar)
+// --------------------------------------------------------------------------
+
+// restrictedFilesPolicy is a helper building a HooksPolicy whose restricted_files list
+// applies on every OS — avoids repeating the boilerplate across glob tests.
+func restrictedFilesPolicy(patterns []string) guardrails.HooksPolicy {
+	p := guardrails.HooksPolicy{}
+	p.DefaultPolicy.RestrictedFiles.Enabled = true
+	p.DefaultPolicy.RestrictedFiles.Linux = patterns
+	p.DefaultPolicy.RestrictedFiles.Mac = patterns
+	p.DefaultPolicy.RestrictedFiles.Windows = patterns
+	return p
+}
+
+// restrictedDirsPolicy mirrors restrictedFilesPolicy for restricted_directories.
+func restrictedDirsPolicy(patterns []string) guardrails.HooksPolicy {
+	p := guardrails.HooksPolicy{}
+	p.DefaultPolicy.RestrictedDirectories.Enabled = true
+	p.DefaultPolicy.RestrictedDirectories.Linux = patterns
+	p.DefaultPolicy.RestrictedDirectories.Mac = patterns
+	p.DefaultPolicy.RestrictedDirectories.Windows = patterns
+	return p
+}
+
+func TestCheckPromptPaths_GlobBasename_StarDotPem(t *testing.T) {
+	cleanup := writePolicy(t, restrictedFilesPolicy([]string{"*.pem"}))
+	defer cleanup()
+
+	blocked, _ := guardrails.CheckPromptPaths("please read cert.pem for the deploy")
+	if !blocked {
+		t.Fatal("expected *.pem to match cert.pem via basename glob")
+	}
+}
+
+func TestCheckPromptPaths_DoubleStar_AnywherePem(t *testing.T) {
+	cleanup := writePolicy(t, restrictedFilesPolicy([]string{"**/*.pem"}))
+	defer cleanup()
+
+	blocked, _ := guardrails.CheckPromptPaths("please inspect /srv/keys/cert.pem now")
+	if !blocked {
+		t.Fatal("expected **/*.pem to match /srv/keys/cert.pem")
+	}
+}
+
+func TestCheckPromptPaths_GlobDir_PerUserSSH(t *testing.T) {
+	var patterns []string
+	var prompt string
+	switch runtime.GOOS {
+	case "windows":
+		patterns = []string{"C:/Users/*/.ssh"}
+		prompt = "grab C:/Users/alice/.ssh/id_rsa"
+	default:
+		patterns = []string{"/home/*/.ssh"}
+		prompt = "grab /home/alice/.ssh/id_rsa"
+	}
+	cleanup := writePolicy(t, restrictedDirsPolicy(patterns))
+	defer cleanup()
+
+	blocked, _ := guardrails.CheckPromptPaths(prompt)
+	if !blocked {
+		t.Fatalf("expected per-user .ssh glob to block %q", prompt)
+	}
+}
+
+func TestCheckPromptPaths_DoubleStar_SecretsAnywhere(t *testing.T) {
+	cleanup := writePolicy(t, restrictedDirsPolicy([]string{"**/secrets/**"}))
+	defer cleanup()
+
+	blocked, _ := guardrails.CheckPromptPaths("look at /repo/services/secrets/db.yaml please")
+	if !blocked {
+		t.Fatal("expected **/secrets/** to match a file inside any secrets dir")
+	}
+}
+
+func TestCheckPromptPaths_LiteralBasename_StillWorks(t *testing.T) {
+	cleanup := writePolicy(t, restrictedFilesPolicy([]string{"kubeconfig", "terraform.tfstate"}))
+	defer cleanup()
+
+	if blocked, _ := guardrails.CheckPromptPaths("merge /etc/kubeconfig please"); !blocked {
+		t.Fatal("literal basename kubeconfig should still block")
+	}
+	if blocked, _ := guardrails.CheckPromptPaths("read terraform.tfstate for audit"); !blocked {
+		t.Fatal("literal basename terraform.tfstate should still block")
+	}
+}
+
+func TestPathUnderAny_GlobDir(t *testing.T) {
+	switch runtime.GOOS {
+	case "windows":
+		if !guardrails.PathUnderAny("C:/Users/alice/.ssh/id_rsa", []string{"C:/Users/*/.ssh"}) {
+			t.Fatal("expected glob dir to match nested path")
+		}
+		if guardrails.PathUnderAny("C:/Users/alice/Documents/report.txt", []string{"C:/Users/*/.ssh"}) {
+			t.Fatal("glob dir must not match unrelated path")
+		}
+	default:
+		if !guardrails.PathUnderAny("/home/alice/.ssh/id_rsa", []string{"/home/*/.ssh"}) {
+			t.Fatal("expected glob dir to match nested path")
+		}
+		if guardrails.PathUnderAny("/home/alice/Documents/report.txt", []string{"/home/*/.ssh"}) {
+			t.Fatal("glob dir must not match unrelated path")
+		}
+	}
+}
+
+func TestCheckShellCommand_RestrictedFilesGlob(t *testing.T) {
+	policy := guardrails.HooksPolicy{}
+	policy.DefaultPolicy.RestrictedFiles.Enabled = true
+	policy.DefaultPolicy.RestrictedFiles.Linux = []string{"**/*.pem"}
+	policy.DefaultPolicy.RestrictedFiles.Mac = []string{"**/*.pem"}
+	policy.DefaultPolicy.RestrictedFiles.Windows = []string{"**/*.pem"}
+	cleanup := writePolicy(t, policy)
+	defer cleanup()
+
+	blocked, needsConfirm, _ := guardrails.CheckShellCommand("cat /tmp/secrets/foo.pem", "")
+	if !blocked {
+		t.Fatal("expected **/*.pem to block a command referencing the file")
+	}
+	if needsConfirm {
+		t.Fatal("restricted-files match should be a hard block, not an ask")
+	}
+}
+
+func TestCheckShellCommand_AllowedFilesGlob(t *testing.T) {
+	rule := guardrails.ToolRule{
+		ID:   "glob-allow",
+		Tool: []string{"mvn"},
+		OS:   []string{currentOS()},
+		AllowedFiles: guardrails.PathPolicy{
+			Enabled: true,
+			Linux:   []string{"**/pom.xml", "*.java"},
+			Mac:     []string{"**/pom.xml", "*.java"},
+			Windows: []string{"**/pom.xml", "*.java"},
+		},
+		MergeStrategy: guardrails.MergeStrategy{AllowedFiles: "override"},
+	}
+	cleanup := writePolicy(t, makeToolRulePolicy(rule))
+	defer cleanup()
+
+	// Foo.java matches "*.java" via basename glob — should be allowed.
+	if blocked, _, _ := guardrails.CheckShellCommand("mvn compile Foo.java", ""); blocked {
+		t.Fatal("expected *.java glob to allow Foo.java")
+	}
+	// ./sub/pom.xml matches "**/pom.xml" via full-path glob — should be allowed.
+	if blocked, _, _ := guardrails.CheckShellCommand("mvn -f ./sub/pom.xml compile", ""); blocked {
+		t.Fatal("expected **/pom.xml glob to allow ./sub/pom.xml")
+	}
+	// script.sh matches nothing — should ask.
+	blocked, needsConfirm, _ := guardrails.CheckShellCommand("mvn compile script.sh", "")
+	if !blocked || !needsConfirm {
+		t.Fatal("unknown file must trigger ask, not allow or hard-block")
+	}
+}
+
+func TestResolveRestrictedPaths_MergeWithEmptyRule(t *testing.T) {
+	// Empty rule list + merge strategy must safely fall back to the global list.
+	got := guardrails.ResolveRestrictedPaths([]string{"/a", "/b"}, nil, "merge")
+	if len(got) != 2 || got[0] != "/a" || got[1] != "/b" {
+		t.Fatalf("empty rule + merge should return global list verbatim, got %v", got)
+	}
+}
+
+// --------------------------------------------------------------------------
+// CheckWorkspaceRoots
+// --------------------------------------------------------------------------
+
+func TestCheckWorkspaceRoots_Blocked(t *testing.T) {
+	policy := guardrails.HooksPolicy{}
+	policy.DefaultPolicy.RestrictedDirectories.Enabled = true
+	policy.DefaultPolicy.RestrictedDirectories.Linux = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Mac = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Windows = []string{"C:\\Cx-Flow\\"}
+	cleanup := writePolicy(t, policy)
+	defer cleanup()
+
+	var roots []string
+	switch runtime.GOOS {
+	case "windows":
+		// Cursor reports Windows roots with a leading slash before the drive letter.
+		roots = []string{"/c:/Cx-Flow/Test/JavaVulnerabilityLabE"}
+	default:
+		roots = []string{"/restricted/project"}
+	}
+
+	blocked, reason := guardrails.CheckWorkspaceRoots(roots)
+	if !blocked {
+		t.Fatalf("expected workspace %v to be blocked", roots)
+	}
+	if reason == "" {
+		t.Fatal("expected non-empty reason")
+	}
+}
+
+func TestCheckWorkspaceRoots_Allowed(t *testing.T) {
+	policy := guardrails.HooksPolicy{}
+	policy.DefaultPolicy.RestrictedDirectories.Enabled = true
+	policy.DefaultPolicy.RestrictedDirectories.Linux = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Mac = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Windows = []string{"C:\\Cx-Flow\\"}
+	cleanup := writePolicy(t, policy)
+	defer cleanup()
+
+	var roots []string
+	switch runtime.GOOS {
+	case "windows":
+		roots = []string{"/d:/Projects/safe"}
+	default:
+		roots = []string{"/home/user/safe"}
+	}
+
+	blocked, _ := guardrails.CheckWorkspaceRoots(roots)
+	if blocked {
+		t.Fatalf("expected workspace %v to be allowed", roots)
+	}
+}
+
+func TestCheckWorkspaceRoots_EmptyList(t *testing.T) {
+	policy := guardrails.HooksPolicy{}
+	policy.DefaultPolicy.RestrictedDirectories.Enabled = true
+	policy.DefaultPolicy.RestrictedDirectories.Linux = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Mac = []string{"/restricted/"}
+	policy.DefaultPolicy.RestrictedDirectories.Windows = []string{"C:\\Cx-Flow\\"}
+	cleanup := writePolicy(t, policy)
+	defer cleanup()
+
+	blocked, _ := guardrails.CheckWorkspaceRoots(nil)
+	if blocked {
+		t.Fatal("empty workspace root list must not block")
+	}
+}
+
+// --------------------------------------------------------------------------
+// NormalizeWorkspaceRoot
+// --------------------------------------------------------------------------
+
+func TestNormalizeWorkspaceRoot(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"cursor-windows-leading-slash", "/c:/Cx-Flow/Test", "c:/Cx-Flow/Test"},
+		{"already-normalized-windows", "C:/Cx-Flow/Test", "C:/Cx-Flow/Test"},
+		{"windows-backslashes", "C:\\Cx-Flow\\Test", "C:/Cx-Flow/Test"},
+		{"unix-absolute", "/etc/secrets", "/etc/secrets"},
+		{"empty", "", ""},
+		{"slash-only", "/", "/"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := guardrails.NormalizeWorkspaceRoot(tc.in); got != tc.want {
+				t.Fatalf("NormalizeWorkspaceRoot(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
 // FindMatchingToolRule
 // --------------------------------------------------------------------------
 

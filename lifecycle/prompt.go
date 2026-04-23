@@ -16,7 +16,11 @@ type PromptEvent struct {
 	Agent     AgentID
 	SessionID string
 	Text      string // the prompt text
-	Raw       any
+	// WorkspaceRoots are the folders the agent is operating in at prompt time.
+	// Cursor sends a list of roots; other agents send a single cwd which is
+	// surfaced here as a one-element slice. Empty when the agent doesn't report it.
+	WorkspaceRoots []string
+	Raw            any
 }
 
 // PromptVerdict is the decision returned by a BeforePrompt handler.
@@ -47,7 +51,8 @@ func BeforePrompt(fn PromptFunc) {
 	dispatch.AddRoute("claude-user-prompt-submit", func() {
 		dispatch.Process(func(ev claude.UserPromptSubmitEvent) claude.UserPromptSubmitResult {
 			verdict := fn(PromptEvent{
-				Agent: AgentClaude, SessionID: ev.SessionID, Text: ev.Prompt, Raw: &ev,
+				Agent: AgentClaude, SessionID: ev.SessionID, Text: ev.Prompt,
+				WorkspaceRoots: workspaceRootsFromCwd(ev.WorkDir), Raw: &ev,
 			})
 			if !verdict.Accept {
 				return claude.RejectPrompt(verdict.Message)
@@ -62,7 +67,8 @@ func BeforePrompt(fn PromptFunc) {
 	dispatch.AddRoute("cursor-before-submit-prompt", func() {
 		dispatch.Process(func(ev cursor.PromptPreEvent) cursor.PromptPreResult {
 			verdict := fn(PromptEvent{
-				Agent: AgentCursor, SessionID: ev.ConversationID, Text: ev.Prompt, Raw: &ev,
+				Agent: AgentCursor, SessionID: ev.ConversationID, Text: ev.Prompt,
+				WorkspaceRoots: ev.WorkspaceRoots, Raw: &ev,
 			})
 			if !verdict.Accept {
 				return cursor.BlockPrompt(verdict.Message)
@@ -73,6 +79,7 @@ func BeforePrompt(fn PromptFunc) {
 
 	dispatch.AddRoute("windsurf-pre-user-prompt", func() {
 		dispatch.ProcessE(func(ev windsurf.PreUserPromptEvent) (windsurf.PreUserPromptResult, error) {
+			// Windsurf's pre_user_prompt payload has no workspace/cwd field.
 			verdict := fn(PromptEvent{
 				Agent: AgentWindsurf, SessionID: ev.TrajectoryID,
 				Text: ev.ToolInfo.UserPrompt, Raw: &ev,
@@ -87,7 +94,8 @@ func BeforePrompt(fn PromptFunc) {
 	dispatch.AddRoute("droid-user-prompt-submit", func() {
 		dispatch.Process(func(ev droid.UserPromptSubmitEvent) droid.UserPromptSubmitResult {
 			verdict := fn(PromptEvent{
-				Agent: AgentDroid, SessionID: ev.SessionID, Text: ev.Prompt, Raw: &ev,
+				Agent: AgentDroid, SessionID: ev.SessionID, Text: ev.Prompt,
+				WorkspaceRoots: workspaceRootsFromCwd(ev.WorkDir), Raw: &ev,
 			})
 			if !verdict.Accept {
 				return droid.RejectPrompt(verdict.Message)
@@ -102,7 +110,8 @@ func BeforePrompt(fn PromptFunc) {
 	dispatch.AddRoute("gemini-before-agent", func() {
 		dispatch.Process(func(ev gemini.BeforeAgentEvent) gemini.BeforeAgentResult {
 			verdict := fn(PromptEvent{
-				Agent: AgentGemini, SessionID: ev.SessionID, Text: ev.Prompt, Raw: &ev,
+				Agent: AgentGemini, SessionID: ev.SessionID, Text: ev.Prompt,
+				WorkspaceRoots: workspaceRootsFromCwd(ev.WorkDir), Raw: &ev,
 			})
 			if !verdict.Accept {
 				return gemini.RejectTurn(verdict.Message)
@@ -113,4 +122,13 @@ func BeforePrompt(fn PromptFunc) {
 			return gemini.AcceptTurn()
 		})
 	})
+}
+
+// workspaceRootsFromCwd wraps a single cwd in the list shape used by PromptEvent.
+// Returns nil when cwd is empty so downstream policy checks short-circuit.
+func workspaceRootsFromCwd(cwd string) []string {
+	if cwd == "" {
+		return nil
+	}
+	return []string{cwd}
 }

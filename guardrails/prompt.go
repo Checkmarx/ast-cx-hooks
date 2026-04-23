@@ -131,29 +131,26 @@ func CheckPromptPaths(text string) (bool, string) {
 	var violations []string
 
 	for _, file := range files {
-		fileLower := strings.ToLower(filepath.ToSlash(file))
-
-		// restricted_files: exact match, basename match, or suffix match.
+		// restricted_files: literal, basename, suffix, or doublestar glob.
 		for _, rf := range restrictedFiles {
-			rfLower := strings.ToLower(filepath.ToSlash(rf))
-			if fileLower == rfLower ||
-				filepath.Base(fileLower) == rfLower ||
-				strings.HasSuffix(fileLower, "/"+rfLower) {
+			if matchFilePattern(rf, file) {
 				if _, ok := seen[file]; !ok {
 					seen[file] = struct{}{}
 					violations = append(violations, fmt.Sprintf("  - %s (restricted file)", file))
 				}
+				break
 			}
 		}
 
-		// restricted_directories: prefix match.
+		// restricted_directories: containment match, with glob support.
+		if _, already := seen[file]; already {
+			continue
+		}
 		for _, rd := range restrictedDirs {
-			rdLower := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rd), "/"))
-			if fileLower == rdLower || strings.HasPrefix(fileLower, rdLower+"/") {
-				if _, ok := seen[file]; !ok {
-					seen[file] = struct{}{}
-					violations = append(violations, fmt.Sprintf("  - %s (restricted directory)", file))
-				}
+			if matchDirContains(rd, file) {
+				seen[file] = struct{}{}
+				violations = append(violations, fmt.Sprintf("  - %s (restricted directory)", file))
+				break
 			}
 		}
 	}
@@ -165,6 +162,30 @@ func CheckPromptPaths(text string) (bool, string) {
 		"Blocked by Checkmarx: the following files or folders are restricted by policy:\n%s\nContact your administrator if you need access to these resources.%s",
 		strings.Join(violations, "\n"), DenyMessage,
 	)
+}
+
+// CheckWorkspaceRoots rejects a prompt whose workspace is within a restricted directory.
+// Policy entries are interpreted per-OS via LoadRestrictedPaths; the prefix match
+// makes a workspace at C:\foo\bar illegal when C:\foo\ is restricted.
+// Returns (true, reason) if any root violates policy, (false, "") otherwise.
+func CheckWorkspaceRoots(roots []string) (bool, string) {
+	if len(roots) == 0 {
+		return false, ""
+	}
+	_, restrictedDirs := LoadRestrictedPaths()
+	if len(restrictedDirs) == 0 {
+		return false, ""
+	}
+	for _, root := range roots {
+		normalized := NormalizeWorkspaceRoot(root)
+		if PathUnderAny(normalized, restrictedDirs) {
+			return true, fmt.Sprintf(
+				"Blocked by Checkmarx: workspace %q is restricted by policy.%s",
+				root, DenyMessage,
+			)
+		}
+	}
+	return false, ""
 }
 
 // CheckBlockedExtensions rejects prompts that reference files with a blocked extension

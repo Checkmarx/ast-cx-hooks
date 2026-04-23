@@ -11,6 +11,7 @@ require (
 require (
 	github.com/BobuSumisu/aho-corasick v1.0.3 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/bwmarrin/discordgo v0.27.1 // indirect
 	github.com/charmbracelet/lipgloss v0.7.1 // indirect
 	github.com/fatih/semgroup v1.2.0 // indirect

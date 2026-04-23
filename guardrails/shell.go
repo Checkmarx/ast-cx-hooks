@@ -3,7 +3,6 @@ package guardrails
 import (
 	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 )
 
@@ -81,7 +80,7 @@ func CheckShellCommand(command, workDir string) (blocked bool, needsConfirm bool
 	if workDir != "" {
 		_, globalDirs := LoadAllowedPaths()
 		effectiveDirs := ResolveAllowedPaths(globalDirs, GetOSPaths(rule.AllowedDirectories), rule.MergeStrategy.AllowedDirectories)
-		if len(effectiveDirs) > 0 && !pathUnderAny(workDir, effectiveDirs) {
+		if len(effectiveDirs) > 0 && !PathUnderAny(workDir, effectiveDirs) {
 			return true, true, fmt.Sprintf(
 				"Working directory %q is not in the allowed list for this tool.%s",
 				workDir, DenyMessage,
@@ -89,27 +88,24 @@ func CheckShellCommand(command, workDir string) (blocked bool, needsConfirm bool
 		}
 	}
 
-	// 2e. Allowed-files check — file-like tokens in the command must be in the effective list.
-	// Unknown (not in list) → ask.
+	// 2e. Allowed-files check — file-like tokens in the command must match at least
+	// one entry in the effective list. Matching supports literal paths, basenames,
+	// and doublestar globs (e.g. "**/pom.xml", "*.java"). Unknown → ask.
 	globalFiles, _ := LoadAllowedPaths()
 	effectiveFiles := ResolveAllowedPaths(globalFiles, GetOSPaths(rule.AllowedFiles), rule.MergeStrategy.AllowedFiles)
 	if len(effectiveFiles) > 0 {
-		fileSet := make(map[string]struct{}, len(effectiveFiles))
-		for _, f := range effectiveFiles {
-			fileSet[strings.ToLower(filepath.Base(f))] = struct{}{}
-		}
 		tokens := strings.Fields(command)
 		if len(tokens) > 1 {
 			for _, token := range tokens[1:] {
 				// Only check tokens that look like file names (contain a path separator or a dot).
-				if strings.ContainsAny(token, "./\\") || strings.Contains(token, ".xml") || strings.Contains(token, ".json") {
-					base := strings.ToLower(filepath.Base(token))
-					if _, ok := fileSet[base]; !ok {
-						return true, true, fmt.Sprintf(
-							"File %q is not in the allowed list for this tool.%s",
-							token, DenyMessage,
-						)
-					}
+				if !strings.ContainsAny(token, "./\\") {
+					continue
+				}
+				if !anyPatternMatchesFile(effectiveFiles, token) {
+					return true, true, fmt.Sprintf(
+						"File %q is not in the allowed list for this tool.%s",
+						token, DenyMessage,
+					)
 				}
 			}
 		}
@@ -126,7 +122,7 @@ func checkToolRestrictedPaths(command, workDir string, rule *ToolRule) (bool, bo
 
 	// Restricted directories: workDir must not fall under any effective restricted dir.
 	effectiveDirs := ResolveRestrictedPaths(globalDirs, GetOSPaths(rule.RestrictedDirectories), rule.MergeStrategy.RestrictedDirectories)
-	if workDir != "" && len(effectiveDirs) > 0 && pathUnderAny(workDir, effectiveDirs) {
+	if workDir != "" && len(effectiveDirs) > 0 && PathUnderAny(workDir, effectiveDirs) {
 		return true, false, fmt.Sprintf(
 			"Blocked by Checkmarx: working directory %q is restricted by policy and not permitted for this tool.%s",
 			workDir, DenyMessage,
@@ -154,7 +150,7 @@ func checkGlobalRestrictedPaths(command, workDir string) (bool, bool, string) {
 		return false, false, ""
 	}
 
-	if workDir != "" && len(globalDirs) > 0 && pathUnderAny(workDir, globalDirs) {
+	if workDir != "" && len(globalDirs) > 0 && PathUnderAny(workDir, globalDirs) {
 		return true, false, fmt.Sprintf(
 			"Blocked by Checkmarx: working directory %q is restricted by policy.%s",
 			workDir, DenyMessage,
@@ -170,28 +166,20 @@ func checkGlobalRestrictedPaths(command, workDir string) (bool, bool, string) {
 }
 
 // findRestrictedFileInCommand returns the first token in the command (skipping
-// the command name itself) that matches a restricted file by exact path, basename,
-// or path suffix. Returns "" when no token matches.
+// the command name itself) that matches any entry in restrictedFiles.
+// Patterns may be literal paths, basenames, or doublestar globs (e.g. "**/*.pem").
+// Returns "" when no token matches.
 func findRestrictedFileInCommand(command string, restrictedFiles []string) string {
 	tokens := strings.Fields(command)
 	if len(tokens) <= 1 {
 		return ""
 	}
-	restrictedSet := make(map[string]struct{}, len(restrictedFiles))
-	for _, f := range restrictedFiles {
-		restrictedSet[strings.ToLower(filepath.ToSlash(f))] = struct{}{}
-	}
 	for _, token := range tokens[1:] {
 		if !strings.ContainsAny(token, "./\\") {
 			continue
 		}
-		tokLower := strings.ToLower(filepath.ToSlash(token))
-		tokBase := strings.ToLower(filepath.Base(token))
 		for _, rf := range restrictedFiles {
-			rfLower := strings.ToLower(filepath.ToSlash(rf))
-			if tokLower == rfLower ||
-				tokBase == rfLower ||
-				strings.HasSuffix(tokLower, "/"+rfLower) {
+			if matchFilePattern(rf, token) {
 				return token
 			}
 		}
@@ -215,12 +203,13 @@ func argMatchesAny(arg string, patterns []string) bool {
 	return false
 }
 
-// pathUnderAny returns true when path falls within at least one of the candidate directories.
-func pathUnderAny(path string, dirs []string) bool {
-	pathSlash := strings.ToLower(filepath.ToSlash(path))
+// PathUnderAny returns true when path falls within at least one of the candidate
+// directories. Directory patterns may be literal paths or doublestar globs
+// (e.g. "/home/*/.ssh", "**/secrets/**"); in the glob case a target matches
+// when it equals the glob-matched directory or is nested under it.
+func PathUnderAny(path string, dirs []string) bool {
 	for _, d := range dirs {
-		dSlash := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(d), "/"))
-		if pathSlash == dSlash || strings.HasPrefix(pathSlash, dSlash+"/") {
+		if matchDirContains(d, path) {
 			return true
 		}
 	}

@@ -354,3 +354,19 @@ func ResolveAllowedPaths(globalPaths, rulePaths []string, strategy string) []str
 func ResolveRestrictedPaths(globalPaths, rulePaths []string, strategy string) []string {
 	return ResolveAllowedPaths(globalPaths, rulePaths, strategy)
 }
+
+// NormalizeWorkspaceRoot canonicalises a workspace root so it can be compared
+// against policy path entries. Cursor reports Windows roots as "/c:/foo/bar";
+// strip the leading slash before a drive letter so PathUnderAny's prefix match
+// lines up with policy entries like "C:\\foo\\bar\\".
+func NormalizeWorkspaceRoot(root string) string {
+	r := filepath.ToSlash(root)
+	if len(r) >= 3 && r[0] == '/' && isASCIILetter(r[1]) && r[2] == ':' {
+		r = r[1:]
+	}
+	return r
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}

@@ -384,6 +384,138 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 The server injects instructions into the AI's system prompt to ensure it calls the guard tools before executing commands or sending external data. Both tools **fail-open** — if the policy file is missing or the license check fails, all requests are allowed.
 
+### Pattern syntax reference
+
+Different policy fields use different matching rules. The table below is authoritative — pick your pattern syntax based on which field you're editing.
+
+| Field | Match type | Wildcards supported | Case sensitivity |
+|---|---|---|---|
+| `restricted_files` | literal + basename + doublestar glob | `*`, `?`, `[...]`, `**` | case-insensitive |
+| `restricted_directories` | literal + prefix + doublestar glob | `*`, `?`, `[...]`, `**` | case-insensitive |
+| `allowed_files` | literal + basename + doublestar glob | `*`, `?`, `[...]`, `**` | case-insensitive |
+| `allowed_directories` | literal + prefix + doublestar glob | `*`, `?`, `[...]`, `**` | case-insensitive |
+| `args_include` | literal + single-segment glob (`path.Match`) | `*`, `?`, `[...]` only — **no `**`** | case-insensitive |
+| `args_exclude` | **substring containment** (`strings.Contains`) | **none — `*` is literal** | case-insensitive |
+
+All path fields are normalized to lowercase and forward-slashes before matching, so Windows policies can use `\\` or `/` interchangeably.
+
+#### File list fields — `restricted_files`, `allowed_files`
+
+A pattern matches a path when ANY of the following is true:
+
+- Lowercased forward-slash forms are equal (literal path: `/etc/passwd`, `C:\Windows\System32\drivers\etc\hosts`)
+- The pattern equals the basename of the path (bare name: `kubeconfig`, `terraform.tfstate`, `.env`)
+- The path has suffix `/` + pattern (back-compat for paths with directory segments)
+- The pattern contains `*`, `?`, or `[...]` and doublestar matches the full path (`**/*.pem` matches `/srv/keys/cert.pem`)
+- The pattern contains `*`, `?`, or `[...]` and doublestar matches the basename (`*.pem` matches `foo.pem`)
+
+**Supported:**
+
+| Pattern | Matches | Rationale |
+|---|---|---|
+| `.env` | `/app/.env`, `/home/a/.env`, `.env` | basename equality |
+| `kubeconfig` | `~/.kube/kubeconfig` | basename equality |
+| `*.pem` | `foo.pem`, `key.pem` | basename glob |
+| `.env*` | `.env`, `.env.local`, `.env.production` | basename glob |
+| `id_rsa*` | `id_rsa`, `id_rsa.pub` | basename glob |
+| `**/*.pem` | `/any/depth/cert.pem`, `certs/foo.pem` | doublestar full-path |
+| `**/.env` | `/svc/api/.env` | doublestar full-path |
+| `/home/*/projects/**/*.java` | `/home/alice/projects/app/src/Foo.java` | doublestar full-path |
+
+**Not supported (silently mis-matches — don't use):**
+
+| Pattern | Why it won't do what you expect |
+|---|---|
+| `~/.ssh/id_rsa` | `~` is NOT expanded to the user's home; treated as the literal character `~` |
+| `%USERPROFILE%\.ssh\id_rsa` | Environment variables are NOT expanded; treated as literal `%USERPROFILE%` |
+| `{a,b}.pem` | Brace expansion is NOT supported by our matcher; treated as literal `{a,b}.pem` |
+
+#### Directory list fields — `restricted_directories`, `allowed_directories`
+
+A pattern matches a path when ANY of the following is true:
+
+- Lowercased forward-slash forms are equal (path IS the directory)
+- Path starts with `pattern + "/"` (literal prefix match — path is nested inside the directory)
+- Pattern contains glob metacharacters and doublestar matches the path directly
+- Pattern contains glob metacharacters and doublestar matches `pattern + "/**"` (path is anywhere under the glob-matched directory)
+
+**Supported:**
+
+| Pattern | Matches | Rationale |
+|---|---|---|
+| `/etc/` | `/etc`, `/etc/passwd`, `/etc/ssh/sshd_config` | literal prefix |
+| `C:\Windows\System32\` | `C:/Windows/System32`, `C:/Windows/System32/drivers/etc/hosts` | literal prefix, normalised |
+| `/home/*/.ssh` | `/home/alice/.ssh`, `/home/alice/.ssh/id_rsa` | single-segment glob + `/**` extension |
+| `C:/Users/*/.ssh` | `C:/Users/alice/.ssh/id_rsa` | single-segment glob |
+| `**/secrets/**` | `/repo/secrets/db.yaml`, `/a/b/secrets/c/d.txt` | doublestar on both sides |
+| `**/node_modules` | anywhere a `node_modules` dir appears | doublestar prefix |
+
+**Not supported:**
+
+| Pattern | Why it won't work |
+|---|---|
+| `~/.ssh`, `~/Projects` | `~` not expanded |
+| `%USERPROFILE%\Projects` | `%USERPROFILE%` not expanded |
+| Trailing slash differences | Leading/trailing slashes are normalised; `/etc` and `/etc/` behave identically |
+
+#### Argument whitelist — `args_include`
+
+Uses Go's stdlib `path.Match` per token, case-insensitively. Each token of the command (skipping the command name) must match at least one pattern. Unmatched tokens trigger an **ask**, not a hard block.
+
+**Supported:**
+
+| Pattern | Matches | Misses |
+|---|---|---|
+| `compile` | exactly `compile` | `compile-goal` |
+| `-D*` | `-Dfoo`, `-Dmaven.compiler.source` | `--Dfoo` (single-segment only) |
+| `--*` | `--offline`, `--batch-mode` | `-o` |
+| `-P?` | `-PA`, `-PB` | `-Pfoo` (`?` is ONE char only) |
+| `[abc]*` | tokens starting with `a`, `b`, or `c` | uppercase tokens |
+
+**Not supported:**
+
+- `**` — has no meaningful meaning for tokens (which don't contain `/`); behaves the same as `*`
+- Brace expansion `{compile,test}` — use two separate entries instead
+- Substring matching — the pattern must match the WHOLE token (wrap with `*…*` if you want that)
+
+#### Argument blacklist — `args_exclude`
+
+**Does NOT use glob syntax.** Each entry is matched as a case-insensitive substring of the ENTIRE command line (not per-token). A pattern containing `*` is treated as a literal string.
+
+Why it's a substring denylist rather than a glob:
+
+- A denylist should be **broader** than tokenised matching, not narrower. `"deploy"` must catch `mvn deploy`, `mvn deploy:deploy-file`, and `mvn my-deploy-wrapper` — all of which a per-token glob would miss.
+- The full-command sweep means patterns like `-Durl=`, `-Dgpg.passphrase`, `-DaltDeploymentRepository` catch the argument regardless of whether it's written as `-Durl=http://…` or `-Durl http://…`.
+
+**Supported:**
+
+| Pattern | Blocks |
+|---|---|
+| `deploy` | `mvn deploy`, `mvn deploy:deploy-file`, `mvn my-custom-deployment` |
+| `-DskipTests` | `mvn compile -DskipTests`, `mvn -DskipTests=true compile` |
+| `-Durl=` | `-Durl=http://evil.com` |
+| `exec:java` | `mvn exec:java` |
+| `maven-antrun-plugin` | any mvn invocation referencing the plugin |
+
+**Not supported (treated as literal characters):**
+
+| Pattern | What actually happens |
+|---|---|
+| `-Dmaven.test.skip*` | Looks for the literal string `-Dmaven.test.skip*` in the command — effectively never matches |
+| `deploy*` | Looks for `deploy*` verbatim — misses plain `deploy` |
+| `*deploy*` | Misses `deploy` (no leading/trailing `*` in the command) |
+
+If you need a narrower match than substring (e.g. block `deploy` but NOT `my-deployment`), either:
+- Anchor the substring with spaces: `" deploy "` will only match when `deploy` is surrounded by whitespace, OR
+- Use a more specific substring such as `mvn deploy` or `deploy:deploy-file` or `deploy ` (note the trailing space).
+
+### Common pitfalls
+
+- **`~` and `%USERPROFILE%` are never expanded** anywhere in the policy. Use explicit paths, doublestar (`/home/*/.ssh`), or OS-specific sections (`linux` / `mac` / `windows` arrays).
+- **`*` alone has no meaning for `args_exclude`.** It's a literal `*` character.
+- **Basename match is ONLY for `_files` fields, not `_directories`.** `restricted_directories: ["secrets"]` will NOT block `/a/b/secrets/c.yaml` — use `"**/secrets/**"` or a full prefix.
+- **Tool-rule `allowed_files` only checks file-like tokens** (those containing `./\`) so plain argument words like `compile` or `test` are not validated against the list. They go through `args_include` instead.
+
 ### Policy file
 
 Guards read policy from `~/.checkmarx/policyhooks1.json`. See [guardrails/policy.go](guardrails/policy.go) for the full schema. Example:

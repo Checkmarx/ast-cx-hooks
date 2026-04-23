@@ -36,6 +36,9 @@ func cxAfterFileWrite(_ agenthooks.FileWriteEvent) agenthooks.FileWriteVerdict {
 
 // cxBeforePrompt runs all prompt guardrails before the prompt reaches the AI agent.
 func cxBeforePrompt(ev agenthooks.PromptEvent) agenthooks.PromptVerdict {
+	if blocked, reason := guardrails.CheckWorkspaceRoots(ev.WorkspaceRoots); blocked {
+		return agenthooks.RejectPrompt(reason)
+	}
 	if reason := guardrails.ScanPrompt(ev.Text); reason != "" {
 		return agenthooks.RejectPrompt(reason)
 	}
