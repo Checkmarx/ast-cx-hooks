@@ -18,7 +18,7 @@ const DenyMessage = "\n\n" +
 	"Any alternative method to accomplish this blocked action may be equally harmful to the system and the developer. " +
 	"Instead, inform the user that this operation is restricted by organizational policy and suggest they contact their administrator if they need this action performed."
 
-// HooksPolicy is the root shape of ~/.checkmarx/policyhooks1.json
+// HooksPolicy is the root shape of ~/.checkmarx/policyhooks.json
 type HooksPolicy struct {
 	DefaultPolicy DefaultPolicy `json:"default_policy"`
 	Tools         ToolsPolicy   `json:"tools"`
@@ -159,16 +159,16 @@ func CheckAndIncrementBlastRadius() (blocked bool, reason string) {
 	return false, ""
 }
 
-// ShellPolicyPath returns the path to the policy file: ~/.checkmarx/policyhooks1.json
+// ShellPolicyPath returns the path to the policy file: ~/.checkmarx/policyhooks.json
 func ShellPolicyPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".checkmarx", "policyhooks1.json")
+	return filepath.Join(home, ".checkmarx", "policyhooks.json")
 }
 
-// LoadPolicy reads and parses ~/.checkmarx/policyhooks1.json.
+// LoadPolicy reads and parses ~/.checkmarx/policyhooks.json.
 // Returns nil on any error (fail-open: a missing or malformed policy should never block the developer).
 func LoadPolicy() *HooksPolicy {
 	data, err := os.ReadFile(ShellPolicyPath())
@@ -242,6 +242,53 @@ func LoadRestrictedPaths() (files []string, dirs []string) {
 	}
 	return GetOSPaths(policy.DefaultPolicy.RestrictedFiles),
 		GetOSPaths(policy.DefaultPolicy.RestrictedDirectories)
+}
+
+// LoadEffectiveRestrictedPaths returns the union of the global default
+// restricted_files / restricted_directories and each enabled tool rule's
+// effective restricted lists, combined per that rule's merge_strategy.
+//
+// Used by prompt-side checks where no specific tool is matched but any tool
+// rule's restriction may still be relevant. Rules disabled, scoped to other
+// OSes, or with merge_strategy == "default" contribute nothing beyond the
+// global lists; "merge" rules contribute their entries; "override" rules
+// contribute their entries (without re-adding global, since global is already
+// included once).
+func LoadEffectiveRestrictedPaths() (files []string, dirs []string) {
+	globalFiles, globalDirs := LoadRestrictedPaths()
+
+	seenF := map[string]struct{}{}
+	seenD := map[string]struct{}{}
+	add := func(seen map[string]struct{}, dst *[]string, src []string) {
+		for _, s := range src {
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			*dst = append(*dst, s)
+		}
+	}
+	add(seenF, &files, globalFiles)
+	add(seenD, &dirs, globalDirs)
+
+	policy := LoadPolicy()
+	if policy == nil || !policy.Tools.Enabled {
+		return files, dirs
+	}
+	for i := range policy.Tools.Rules {
+		rule := &policy.Tools.Rules[i]
+		if rule.Enabled != nil && !*rule.Enabled {
+			continue
+		}
+		if len(rule.OS) > 0 && !MatchesOS(rule.OS, runtime.GOOS) {
+			continue
+		}
+		ef := ResolveRestrictedPaths(globalFiles, GetOSPaths(rule.RestrictedFiles), rule.MergeStrategy.RestrictedFiles)
+		ed := ResolveRestrictedPaths(globalDirs, GetOSPaths(rule.RestrictedDirectories), rule.MergeStrategy.RestrictedDirectories)
+		add(seenF, &files, ef)
+		add(seenD, &dirs, ed)
+	}
+	return files, dirs
 }
 
 // LoadAllowedPaths returns the OS-specific allowed file and directory

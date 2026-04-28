@@ -31,12 +31,30 @@ var filePathRegexps = []*regexp.Regexp{
 	regexp.MustCompile(`(?:^|[\s"'` + "`" + `@])(\.[a-zA-Z0-9][a-zA-Z0-9_.-]*|[a-zA-Z0-9_-]+\.[a-zA-Z0-9][a-zA-Z0-9_.-]*)(?:[\s"'` + "`" + `,;:!?]|$)`),
 }
 
+// globMetaStripper replaces wildcard metacharacters with a space so that
+// glob-shaped references like "*.env", ".env*", "**/secrets/**", or "id_rsa*"
+// degrade to plain path tokens the regexes below already understand.
+//
+// Spaces (rather than empty strings) preserve word/path boundaries: "file*name"
+// becomes "file name" — two separate tokens — instead of merging into a single
+// false token "filename". The character class regex anchors then continue to
+// fire correctly on the cleaned text.
+var globMetaStripper = strings.NewReplacer("*", " ", "?", " ")
+
+// stripGlobMeta returns text with glob metacharacters replaced by spaces.
+func stripGlobMeta(text string) string {
+	return globMetaStripper.Replace(text)
+}
+
 // extractFilePaths returns all file/directory paths found in text, deduplicated.
+// Glob metacharacters are stripped first so that wildcarded references in user
+// prompts (e.g. "modify *.env") still surface the underlying file/extension.
 func extractFilePaths(text string) []string {
+	cleaned := stripGlobMeta(text)
 	seen := map[string]struct{}{}
 	var paths []string
 	for _, re := range filePathRegexps {
-		for _, m := range re.FindAllStringSubmatch(text, -1) {
+		for _, m := range re.FindAllStringSubmatch(cleaned, -1) {
 			p := strings.TrimSpace(m[len(m)-1])
 			if _, ok := seen[p]; !ok {
 				seen[p] = struct{}{}
@@ -45,6 +63,63 @@ func extractFilePaths(text string) []string {
 		}
 	}
 	return paths
+}
+
+// extractLiteralAnchors derives bare-name anchors from policy entries by
+// stripping glob metacharacters and reducing each entry to its final path
+// component. The resulting anchors are bare filenames (e.g. "kubeconfig",
+// "id_rsa") that the path-extraction regex cannot detect on its own — they
+// have no extension, no leading dot, and no path separator — so a separate
+// word-boundary scan of the prompt is needed to surface them.
+//
+// Glob entries like "*.pem" or "**/secrets/**" reduce to ".pem" / "secrets"
+// — the path regexes already handle those, so duplicates here are harmless
+// (the caller deduplicates against extracted paths).
+func extractLiteralAnchors(entries []string) []string {
+	cleaner := strings.NewReplacer("*", "", "?", "")
+	seen := map[string]struct{}{}
+	var anchors []string
+	for _, e := range entries {
+		c := cleaner.Replace(e)
+		c = strings.Trim(c, "/\\")
+		if c == "" {
+			continue
+		}
+		if i := strings.LastIndexAny(c, "/\\"); i >= 0 {
+			c = c[i+1:]
+		}
+		if c == "" {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		seen[c] = struct{}{}
+		anchors = append(anchors, c)
+	}
+	return anchors
+}
+
+// findLiteralAnchorsInText returns the subset of anchors that appear in text
+// at a word boundary (case-insensitive). Used to surface bare-name policy
+// entries the path regexes miss.
+func findLiteralAnchorsInText(text string, anchors []string) []string {
+	if len(anchors) == 0 {
+		return nil
+	}
+	cleaned := stripGlobMeta(text)
+	seen := map[string]struct{}{}
+	var hits []string
+	for _, a := range anchors {
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(a) + `\b`)
+		if re.MatchString(cleaned) {
+			if _, ok := seen[a]; !ok {
+				seen[a] = struct{}{}
+				hits = append(hits, a)
+			}
+		}
+	}
+	return hits
 }
 
 // severityFromValidation maps 2ms validation status to a severity label.
@@ -87,27 +162,22 @@ func ScanForSecrets(text string) string {
 	)
 }
 
-// resolveReferencedFile returns an absolute path to a readable regular file for
-// the given prompt-referenced path, or "" if the path cannot be resolved to an
-// existing file within the known workspace roots.
+// maxGlobFallbackMatches caps the number of files a single ambiguous prompt
+// reference may expand to via the glob fallback. Beyond this we drop the
+// fallback entirely rather than scan a directory's worth of unrelated files.
+const maxGlobFallbackMatches = 20
+
+// resolveReferencedFile returns absolute paths to readable regular files for
+// the given prompt-referenced path. A literal match wins; if the path doesn't
+// exist on disk, a one-level glob in the parent directory (`<path>*`) is tried
+// so that references like `application-jira` still resolve to `application-jira.yml`.
 //
 // Absolute paths are used as-is; relative paths are tried against each
-// workspace root in order. The first match that resolves to a regular file
-// wins. Directories, symlinks to directories, and missing entries return "".
-func resolveReferencedFile(p string, workspaceRoots []string) string {
-	tryStat := func(path string) string {
-		info, err := os.Stat(path)
-		if err != nil {
-			return ""
-		}
-		if !info.Mode().IsRegular() {
-			return ""
-		}
-		return path
-	}
-
+// workspace root in order, returning the first root that yields any matches.
+// Directories, symlinks to directories, and missing entries return nil.
+func resolveReferencedFile(p string, workspaceRoots []string) []string {
 	if filepath.IsAbs(p) {
-		return tryStat(p)
+		return resolveOne(p)
 	}
 	// Cursor sometimes reports Windows roots as "/c:/foo"; normalise before joining.
 	for _, root := range workspaceRoots {
@@ -115,11 +185,56 @@ func resolveReferencedFile(p string, workspaceRoots []string) string {
 		if normalized == "" {
 			continue
 		}
-		if resolved := tryStat(filepath.Join(normalized, p)); resolved != "" {
+		if resolved := resolveOne(filepath.Join(normalized, p)); len(resolved) > 0 {
 			return resolved
 		}
 	}
-	return ""
+	return nil
+}
+
+// resolveOne returns the regular file at absPath if it exists, otherwise the
+// glob fallback `<absPath>*` capped at maxGlobFallbackMatches regular files.
+// A typed path that is itself a directory returns nil (we never expand a
+// directory reference into its contents).
+func resolveOne(absPath string) []string {
+	if info, err := os.Stat(absPath); err == nil {
+		if info.Mode().IsRegular() {
+			return []string{absPath}
+		}
+		return nil // directory or other non-regular entry
+	}
+	return resolveByGlob(absPath)
+}
+
+// resolveByGlob expands `absPath*` to sibling regular files. Returns nil when
+// the parent directory doesn't exist or the match count would exceed
+// maxGlobFallbackMatches — refusing to scan is safer than scanning the wrong
+// thing on a broad prefix.
+func resolveByGlob(absPath string) []string {
+	parent := filepath.Dir(absPath)
+	parentInfo, err := os.Stat(parent)
+	if err != nil || !parentInfo.IsDir() {
+		return nil
+	}
+	matches, err := filepath.Glob(absPath + "*")
+	if err != nil || len(matches) == 0 {
+		return nil
+	}
+	var regular []string
+	for _, m := range matches {
+		info, err := os.Lstat(m)
+		if err != nil {
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		regular = append(regular, m)
+		if len(regular) > maxGlobFallbackMatches {
+			return nil
+		}
+	}
+	return regular
 }
 
 // ScanReferencedFiles resolves file paths mentioned in text against the given
@@ -146,46 +261,44 @@ func ScanReferencedFiles(text string, workspaceRoots []string) string {
 	sc := scanner.NewScanner()
 
 	for _, p := range paths {
-		resolved := resolveReferencedFile(p, workspaceRoots)
-		if resolved == "" {
-			continue
-		}
-		if _, dup := seen[resolved]; dup {
-			continue
-		}
-		seen[resolved] = struct{}{}
-
-		info, err := os.Stat(resolved)
-		if err != nil || info.Size() > maxBytes {
-			continue
-		}
-
-		data, err := os.ReadFile(resolved)
-		if err != nil {
-			continue
-		}
-		content := string(data)
-
-		report, err := sc.Scan(
-			[]scanner.ScanItem{{Content: &content, Source: resolved}},
-			scanner.ScanConfig{WithValidation: true},
-		)
-		if err != nil {
-			continue // fail-open per scanner
-		}
-
-		var findings []string
-		for _, group := range report.Results {
-			for _, secret := range group {
-				severity := severityFromValidation(string(secret.ValidationStatus))
-				findings = append(findings, fmt.Sprintf("    - %s (severity: %s)", secret.RuleID, severity))
+		for _, resolved := range resolveReferencedFile(p, workspaceRoots) {
+			if _, dup := seen[resolved]; dup {
+				continue
 			}
+			seen[resolved] = struct{}{}
+
+			info, err := os.Stat(resolved)
+			if err != nil || info.Size() > maxBytes {
+				continue
+			}
+
+			data, err := os.ReadFile(resolved)
+			if err != nil {
+				continue
+			}
+			content := string(data)
+
+			report, err := sc.Scan(
+				[]scanner.ScanItem{{Content: &content, Source: resolved}},
+				scanner.ScanConfig{WithValidation: true},
+			)
+			if err != nil {
+				continue // fail-open per scanner
+			}
+
+			var findings []string
+			for _, group := range report.Results {
+				for _, secret := range group {
+					severity := severityFromValidation(string(secret.ValidationStatus))
+					findings = append(findings, fmt.Sprintf("    - %s (severity: %s)", secret.RuleID, severity))
+				}
+			}
+			if len(findings) == 0 {
+				continue
+			}
+			perFile = append(perFile,
+				fmt.Sprintf("  %s (%d secret(s)):\n%s", resolved, len(findings), strings.Join(findings, "\n")))
 		}
-		if len(findings) == 0 {
-			continue
-		}
-		perFile = append(perFile,
-			fmt.Sprintf("  %s (%d secret(s)):\n%s", p, len(findings), strings.Join(findings, "\n")))
 	}
 
 	if len(perFile) == 0 {
@@ -232,17 +345,34 @@ func ScanForPolicyPatterns(text string) string {
 // CheckPromptPaths checks file/directory paths mentioned in a prompt against
 // the organization's restricted_files and restricted_directories policy.
 //
+// The effective restricted lists union the global default_policy entries with
+// each enabled tool rule's restricted_files / restricted_directories combined
+// per the rule's merge_strategy ("merge" / "override" / "default"). This means
+// a prompt that references a path restricted by ANY tool rule is blocked,
+// regardless of which tool the agent might eventually invoke.
+//
+// Detection sources:
+//   - Path-shaped tokens extracted from the prompt (after stripping glob meta).
+//   - Bare-name word-boundary hits derived from non-glob policy entries
+//     (e.g. "kubeconfig", "id_rsa") that the path-extraction regexes miss.
+//
 // Precedence: restricted always wins over allowed. A path that matches both a
 // restricted and an allowed list is still blocked.
 //
 // Returns (true, reason) if blocked, (false, "") if allowed.
 func CheckPromptPaths(text string) (bool, string) {
-	restrictedFiles, restrictedDirs := LoadRestrictedPaths()
+	restrictedFiles, restrictedDirs := LoadEffectiveRestrictedPaths()
 	if len(restrictedFiles) == 0 && len(restrictedDirs) == 0 {
 		return false, ""
 	}
 
 	files := extractFilePaths(text)
+	// Bare-name policy entries (e.g. "kubeconfig") aren't surfaced by the path
+	// regex, so word-boundary scan for them and feed any hits through the same
+	// matchFilePattern path below.
+	for _, hit := range findLiteralAnchorsInText(text, extractLiteralAnchors(restrictedFiles)) {
+		files = append(files, hit)
+	}
 	seen := map[string]struct{}{}
 	var violations []string
 

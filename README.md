@@ -518,7 +518,7 @@ If you need a narrower match than substring (e.g. block `deploy` but NOT `my-dep
 
 ### Policy file
 
-Guards read policy from `~/.checkmarx/policyhooks1.json`. See [guardrails/policy.go](guardrails/policy.go) for the full schema. Example:
+Guards read policy from `~/.checkmarx/policyhooks.json`. See [guardrails/policy.go](guardrails/policy.go) for the full schema. Example:
 
 ```json
 {

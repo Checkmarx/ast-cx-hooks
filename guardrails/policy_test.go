@@ -47,7 +47,7 @@ func writePolicy(t *testing.T, policy guardrails.HooksPolicy) func() {
 	if err := os.MkdirAll(cxDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(cxDir, "policyhooks1.json"), data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cxDir, "policyhooks.json"), data, 0o644); err != nil {
 		t.Fatalf("write policy: %v", err)
 	}
 	return setHomeDir(dir)
@@ -82,7 +82,7 @@ func TestLoadPolicy_MalformedJSON(t *testing.T) {
 	dir := t.TempDir()
 	cxDir := filepath.Join(dir, ".checkmarx")
 	os.MkdirAll(cxDir, 0o755)
-	os.WriteFile(filepath.Join(cxDir, "policyhooks1.json"), []byte("not-json{{{"), 0o644)
+	os.WriteFile(filepath.Join(cxDir, "policyhooks.json"), []byte("not-json{{{"), 0o644)
 	defer setHomeDir(dir)()
 
 	if got := guardrails.LoadPolicy(); got != nil {

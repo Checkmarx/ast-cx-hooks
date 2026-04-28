@@ -169,6 +169,13 @@ func checkGlobalRestrictedPaths(command, workDir string) (bool, bool, string) {
 // the command name itself) that matches any entry in restrictedFiles.
 // Patterns may be literal paths, basenames, or doublestar globs (e.g. "**/*.pem").
 // Returns "" when no token matches.
+//
+// Two passes:
+//  1. Path-shaped tokens (containing ./\) match against any policy entry via
+//     matchFilePattern (literal, basename, suffix, or doublestar glob).
+//  2. Bare-word tokens match against non-glob (literal) policy entries by
+//     case-insensitive equality. This catches cases like `cat kubeconfig`
+//     where the file argument has no path separator or extension.
 func findRestrictedFileInCommand(command string, restrictedFiles []string) string {
 	tokens := strings.Fields(command)
 	if len(tokens) <= 1 {
@@ -180,6 +187,20 @@ func findRestrictedFileInCommand(command string, restrictedFiles []string) strin
 		}
 		for _, rf := range restrictedFiles {
 			if matchFilePattern(rf, token) {
+				return token
+			}
+		}
+	}
+	literalAnchors := extractLiteralAnchors(restrictedFiles)
+	if len(literalAnchors) == 0 {
+		return ""
+	}
+	for _, token := range tokens[1:] {
+		if strings.ContainsAny(token, "./\\") {
+			continue
+		}
+		for _, a := range literalAnchors {
+			if strings.EqualFold(token, a) {
 				return token
 			}
 		}
