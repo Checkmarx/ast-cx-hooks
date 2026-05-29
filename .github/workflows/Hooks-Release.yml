@@ -41,7 +41,7 @@ jobs:
       # 🔑 Tag Creation
       - name: Bump version and push tag
         id: tag_version
-        uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b
+        uses: step-security/github-tag-action@9c71d71802cca8038be2220876265db07000b404 # v6.2.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag_prefix: v
@@ -56,7 +56,7 @@ jobs:
 
       # 📦 Create GitHub Release
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
+        uses: step-security/action-gh-release@277bfa82abcfdb73e5bbb19e213fd76532ee2be5 # v3.0.0
         with:
           tag_name: ${{ steps.tag_version.outputs.new_tag }}
           name: Checkmarx AST Hooks ${{ steps.tag_version.outputs.new_tag }}
