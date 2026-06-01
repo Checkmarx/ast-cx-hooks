@@ -18,7 +18,7 @@ import (
 func DecodeStdin(v any) error {
 	r := bufio.NewReader(os.Stdin)
 	if bom, err := r.Peek(3); err == nil && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF {
-		r.Discard(3)
+		_, _ = r.Discard(3)
 	}
 	return json.NewDecoder(r).Decode(v)
 }

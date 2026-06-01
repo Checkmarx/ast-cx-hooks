@@ -157,19 +157,19 @@ func windsurfHook(binary, subcmd string) map[string]any {
 
 // patchJSONFile reads a JSON file (creating it if absent), applies patch, and writes it back.
 func patchJSONFile(path string, patch func(map[string]any)) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	m := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &m) //nolint:errcheck
+	if data, err := os.ReadFile(path); err == nil { // #nosec G304
+		_ = json.Unmarshal(data, &m)
 	}
 	patch(m)
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	return os.WriteFile(path, append(data, '\n'), 0o600) // #nosec
 }
 
 func ensureMap(m map[string]any, key string) map[string]any {
@@ -204,7 +204,7 @@ func runBuild() error {
 	}
 
 	outDir := "dist"
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return err
 	}
 
@@ -221,7 +221,7 @@ func runBuild() error {
 		}
 		out := filepath.Join(outDir, name)
 
-		cmd := exec.Command("go", "build", "-o", out, pkg)
+		cmd := exec.Command("go", "build", "-o", out, pkg) // #nosec G702,G204
 		cmd.Env = append(os.Environ(),
 			"GOOS="+t.goos,
 			"GOARCH="+t.goarch,

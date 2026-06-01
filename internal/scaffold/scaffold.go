@@ -33,14 +33,14 @@ func Run(args []string) {
 		}
 	}
 
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		fmt.Fprintf(os.Stderr, "error creating %s: %v\n", dir, err)
 		os.Exit(1)
 	}
 
 	for _, f := range files {
 		out := filepath.Join(dir, filepath.FromSlash(f.path))
-		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
 			fmt.Fprintf(os.Stderr, "error creating directory for %s: %v\n", out, err)
 			os.Exit(1)
 		}
