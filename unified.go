@@ -477,7 +477,7 @@ func AfterFileWrite(fn FileWriteFunc) {
 				FilePath string `json:"file_path"`
 				Path     string `json:"path"`
 			}
-			json.Unmarshal(ev.ToolInput, &toolInputFields) //nolint:errcheck
+			_ = json.Unmarshal(ev.ToolInput, &toolInputFields)
 			filePath := toolInputFields.FilePath
 			if filePath == "" {
 				filePath = toolInputFields.Path
@@ -611,7 +611,7 @@ func claudeToolKind(toolName string, input json.RawMessage) (ToolKind, string) {
 		var v struct {
 			Command string `json:"command"`
 		}
-		json.Unmarshal(input, &v) //nolint:errcheck
+		_ = json.Unmarshal(input, &v)
 		return ToolKindShell, v.Command
 	}
 	if len(toolName) >= 5 && toolName[:5] == "mcp__" {
@@ -651,7 +651,7 @@ func claudeFilePath(input json.RawMessage) string {
 	var v struct {
 		FilePath string `json:"file_path"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v)
 	return v.FilePath
 }
 
@@ -665,7 +665,7 @@ func claudeWriteChanges(toolName string, input json.RawMessage) []FileDiff {
 		OldString string `json:"old_string"`
 		NewString string `json:"new_string"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v)
 	if toolName == "Edit" || toolName == "MultiEdit" {
 		return []FileDiff{{Before: v.OldString, After: v.NewString}}
 	}
