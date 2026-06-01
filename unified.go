@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/CheckmarxDev/ast-cx-hooks/claude"
+	"github.com/CheckmarxDev/ast-cx-hooks/copilot"
 	"github.com/CheckmarxDev/ast-cx-hooks/cursor"
 	"github.com/CheckmarxDev/ast-cx-hooks/droid"
 	"github.com/CheckmarxDev/ast-cx-hooks/gemini"
@@ -22,6 +23,7 @@ const (
 	AgentWindsurf AgentID = "windsurf"
 	AgentDroid    AgentID = "droid"
 	AgentGemini   AgentID = "gemini"
+	AgentCopilot  AgentID = "copilot"
 )
 
 // =============================================================================
@@ -61,7 +63,7 @@ type AgentIdleEvent struct {
 // For Claude, Droid, and Gemini it checks IsRepeat; for Cursor it checks AutoRetryCount.
 func (e AgentIdleEvent) IsLooping() bool {
 	switch e.Agent {
-	case AgentClaude, AgentDroid, AgentGemini:
+	case AgentClaude, AgentDroid, AgentGemini, AgentCopilot:
 		return e.IsRepeat
 	case AgentCursor:
 		return e.AutoRetryCount >= 3
@@ -93,6 +95,7 @@ type AgentIdleFunc func(AgentIdleEvent) IdleVerdict
 //   - Windsurf      → "windsurf-post-cascade-response" (fire-and-forget; Interrupt is logged but ignored)
 //   - Factory Droid → "droid-stop"
 //   - Gemini CLI    → "gemini-after-agent"
+//   - VS Code Copilot → "copilot-stop"
 func WhenAgentIdle(fn AgentIdleFunc) {
 	AddRoute("claude-stop", func() {
 		Process(func(ev claude.StopEvent) claude.StopResult {
@@ -157,6 +160,19 @@ func WhenAgentIdle(fn AgentIdleFunc) {
 				return gemini.RetryWithFeedback(verdict.Feedback)
 			}
 			return gemini.AcceptResponse()
+		})
+	})
+
+	AddRoute("copilot-stop", func() {
+		Process(func(ev copilot.StopEvent) copilot.StopResult {
+			verdict := fn(AgentIdleEvent{
+				Agent: AgentCopilot, SessionID: ev.SessionID, WorkDir: ev.WorkDir,
+				IsRepeat: ev.HookActive, Raw: &ev,
+			})
+			if verdict.Proceed {
+				return copilot.LetStop()
+			}
+			return copilot.HaltAndContinue(verdict.Feedback)
 		})
 	})
 }
@@ -237,6 +253,7 @@ type ToolCallFunc func(ToolCallEvent) ToolVerdict
 //   - Windsurf      → "windsurf-pre-mcp-tool-use" (MCP, blocking via exit 2)
 //   - Factory Droid → "droid-pre-tool-use"        (Bash + mcp__* tools, blocking via exit 2)
 //   - Gemini CLI    → "gemini-before-tool"        (all tools, blocking via exit 2)
+//   - VS Code Copilot → "copilot-pre-tool-use"    (Bash + mcp__* tools)
 func BeforeToolCall(fn ToolCallFunc) {
 	// Claude Code — covers Bash and mcp__* tools via PreToolUse
 	AddRoute("claude-pre-tool-use", func() {
@@ -344,6 +361,27 @@ func BeforeToolCall(fn ToolCallFunc) {
 			return gemini.ApproveToolCall()
 		})
 	})
+
+	// VS Code Copilot — Bash + mcp__* via PreToolUse (decision priority: deny > ask > allow)
+	AddRoute("copilot-pre-tool-use", func() {
+		Process(func(ev copilot.PreToolUseEvent) copilot.PreToolUseResult {
+			kind, cmd := copilotToolKind(ev.ToolName, ev.ToolInput)
+			verdict := fn(ToolCallEvent{
+				Agent: AgentCopilot, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
+				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
+			})
+			if verdict.Permit {
+				if verdict.Message != "" {
+					return copilot.ApproveToolUseWithNote(verdict.Message)
+				}
+				return copilot.ApproveToolUse()
+			}
+			if verdict.NeedsConfirm {
+				return copilot.AskUserAboutTool(verdict.Message)
+			}
+			return copilot.DenyToolUse(verdict.Message)
+		})
+	})
 }
 
 // =============================================================================
@@ -391,6 +429,7 @@ type FileWriteFunc func(FileWriteEvent) FileWriteVerdict
 //   - Windsurf      → "windsurf-post-write-code" (fire-and-forget)
 //   - Factory Droid → "droid-after-file-write"   (PostToolUse for Write/Edit tools)
 //   - Gemini CLI    → "gemini-after-file-tool"   (AfterTool for Write/Edit tools)
+//   - VS Code Copilot → "copilot-after-file-write" (PostToolUse for Write/Edit tools)
 func AfterFileWrite(fn FileWriteFunc) {
 	// Claude Code — PostToolUse filtered to Write and Edit tools
 	AddRoute("claude-after-file-write", func() {
@@ -492,6 +531,28 @@ func AfterFileWrite(fn FileWriteFunc) {
 			return gemini.AcknowledgeToolCall()
 		})
 	})
+
+	// VS Code Copilot — PostToolUse filtered to Write and Edit tools
+	AddRoute("copilot-after-file-write", func() {
+		Process(func(ev copilot.PostToolUseEvent) copilot.PostToolUseResult {
+			if ev.ToolName != "Write" && ev.ToolName != "Edit" && ev.ToolName != "MultiEdit" {
+				return copilot.AcknowledgeToolUse()
+			}
+			changes := copilotWriteChanges(ev.ToolName, ev.ToolInput)
+			verdict := fn(FileWriteEvent{
+				Agent: AgentCopilot, SessionID: ev.SessionID,
+				FilePath: copilotFilePath(ev.ToolInput), Changes: changes, WorkDir: ev.WorkDir,
+				Raw: &ev,
+			})
+			if verdict.Reject {
+				return copilot.RejectToolResult(verdict.Feedback)
+			}
+			if verdict.Footnote != "" {
+				return copilot.AddToolContext(verdict.Footnote)
+			}
+			return copilot.AcknowledgeToolUse()
+		})
+	})
 }
 
 // =============================================================================
@@ -530,6 +591,7 @@ type PromptFunc func(PromptEvent) PromptVerdict
 //   - Windsurf      → "windsurf-pre-user-prompt"   (blocking via exit 2)
 //   - Factory Droid → "droid-user-prompt-submit"
 //   - Gemini CLI    → "gemini-before-agent"
+//   - VS Code Copilot → "copilot-user-prompt-submit"
 func BeforePrompt(fn PromptFunc) {
 	AddRoute("claude-user-prompt-submit", func() {
 		Process(func(ev claude.UserPromptSubmitEvent) claude.UserPromptSubmitResult {
@@ -598,6 +660,21 @@ func BeforePrompt(fn PromptFunc) {
 				return gemini.EnrichTurn(verdict.Message)
 			}
 			return gemini.AcceptTurn()
+		})
+	})
+
+	AddRoute("copilot-user-prompt-submit", func() {
+		Process(func(ev copilot.UserPromptSubmitEvent) copilot.UserPromptSubmitResult {
+			verdict := fn(PromptEvent{
+				Agent: AgentCopilot, SessionID: ev.SessionID, Text: ev.Prompt, Raw: &ev,
+			})
+			if !verdict.Accept {
+				return copilot.RejectPrompt(verdict.Message)
+			}
+			if verdict.Message != "" {
+				return copilot.AppendToPrompt(verdict.Message)
+			}
+			return copilot.ApprovePrompt()
 		})
 	})
 }
@@ -673,5 +750,18 @@ func claudeWriteChanges(toolName string, input json.RawMessage) []FileDiff {
 }
 
 func droidWriteChanges(toolName string, input json.RawMessage) []FileDiff {
+	return claudeWriteChanges(toolName, input)
+}
+
+// Copilot uses the same Bash/mcp__ tool naming convention as Claude.
+func copilotToolKind(toolName string, input json.RawMessage) (ToolKind, string) {
+	return claudeToolKind(toolName, input)
+}
+
+func copilotFilePath(input json.RawMessage) string {
+	return claudeFilePath(input)
+}
+
+func copilotWriteChanges(toolName string, input json.RawMessage) []FileDiff {
 	return claudeWriteChanges(toolName, input)
 }

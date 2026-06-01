@@ -2,7 +2,7 @@
 
 A Go framework for building hooks that work across **all major AI coding agents** — with a single codebase.
 
-Write one handler, compile one binary, and it works with **Claude Code**, **Cursor**, **Windsurf Cascade**, **Factory Droid**, and **Gemini CLI**.
+Write one handler, compile one binary, and it works with **Claude Code**, **Cursor**, **Windsurf Cascade**, **Factory Droid**, **Gemini CLI**, and **GitHub Copilot in VS Code** (Preview).
 
 ```go
 package main
@@ -37,6 +37,14 @@ Every AI coding agent has its own hook system with different JSON schemas, respo
 go get github.com/CheckmarxDev/ast-cx-hooks
 ```
 
+## Documentation (demos and enablement)
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/CONFLUENCE-PAGE.md](docs/CONFLUENCE-PAGE.md) | Stakeholder narrative, route reference — paste into Confluence |
+| [docs/DEMO.md](docs/DEMO.md) | Multi-agent demo: prep, scripted stdin tests, live product steps |
+| [docs/VIDEO-STORYBOARD.md](docs/VIDEO-STORYBOARD.md) | Short video storyboard, timing, recording checklist |
+
 ## Supported Agents
 
 | Agent | Config Location | Hook Style |
@@ -46,6 +54,7 @@ go get github.com/CheckmarxDev/ast-cx-hooks
 | **Windsurf Cascade** | `~/.codeium/windsurf/hooks.json` | JSON stdin, exit code 2 to block |
 | **Factory Droid** | `~/.factory/settings.json` | JSON stdin → JSON stdout |
 | **Gemini CLI** | `~/.gemini/settings.json` | JSON stdin, exit code 2 to block |
+| **GitHub Copilot in VS Code** *(Preview)* | `.github/hooks/*.json` (workspace) or `~/.copilot/hooks` (user) | JSON stdin → JSON stdout |
 
 ## Unified Hooks
 
@@ -70,6 +79,7 @@ agenthooks.WhenAgentIdle(func(e agenthooks.AgentIdleEvent) agenthooks.IdleVerdic
 - Windsurf → `post_cascade_response` *(fire-and-forget)*
 - Factory Droid → `Stop`
 - Gemini CLI → `AfterAgent`
+- VS Code Copilot → `Stop`
 
 ### `BeforeToolCall` — Gate tool/command execution
 
@@ -95,6 +105,7 @@ agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdic
 - Windsurf → `pre_run_command` + `pre_mcp_tool_use`
 - Factory Droid → `PreToolUse`
 - Gemini CLI → `BeforeTool`
+- VS Code Copilot → `PreToolUse`
 
 ### `AfterFileWrite` — React to file edits
 
@@ -118,6 +129,7 @@ agenthooks.AfterFileWrite(func(e agenthooks.FileWriteEvent) agenthooks.FileWrite
 - Windsurf → `post_write_code`
 - Factory Droid → `PostToolUse` (Write/Edit tools)
 - Gemini CLI → `AfterTool` (Write/Edit tools)
+- VS Code Copilot → `PostToolUse` (Write/Edit tools)
 
 ### `BeforePrompt` — Filter or enrich user prompts
 
@@ -140,6 +152,7 @@ agenthooks.BeforePrompt(func(e agenthooks.PromptEvent) agenthooks.PromptVerdict 
 - Windsurf → `pre_user_prompt`
 - Factory Droid → `UserPromptSubmit`
 - Gemini CLI → `BeforeAgent`
+- VS Code Copilot → `UserPromptSubmit`
 
 ## Platform-Specific Hooks
 
@@ -170,6 +183,7 @@ agenthooks.AddRoute("claude-pre-tool-use", func() {
 | Windsurf | `github.com/CheckmarxDev/ast-cx-hooks/windsurf` |
 | Factory Droid | `github.com/CheckmarxDev/ast-cx-hooks/droid` |
 | Gemini CLI | `github.com/CheckmarxDev/ast-cx-hooks/gemini` |
+| VS Code Copilot *(Preview)* | `github.com/CheckmarxDev/ast-cx-hooks/copilot` |
 
 ## Building & Installing
 
@@ -315,6 +329,37 @@ The first argument is the **route name** — it tells the binary which handler t
 1. Build and install.
 2. Open Factory — hooks are in `~/.factory/settings.json`.
 3. Droid hooks follow the same stdin/stdout JSON pattern as Claude.
+
+### Testing with GitHub Copilot in VS Code *(Preview)*
+
+VS Code Copilot agent hooks are currently in Preview. The `agenthooks install` command does not auto-configure them — drop one of the configs below in by hand.
+
+**Workspace scope** — `.github/hooks/copilot.json` (checked into the repo):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "type": "command", "command": "/path/to/myhook copilot-pre-tool-use" }
+    ],
+    "PostToolUse": [
+      { "type": "command", "command": "/path/to/myhook copilot-after-file-write" }
+    ],
+    "UserPromptSubmit": [
+      { "type": "command", "command": "/path/to/myhook copilot-user-prompt-submit" }
+    ],
+    "Stop": [
+      { "type": "command", "command": "/path/to/myhook copilot-stop" }
+    ]
+  }
+}
+```
+
+**User scope** — write the same JSON to `~/.copilot/hooks` (no extension) for global coverage.
+
+Open a VS Code workspace with the Copilot extension active and trigger an agent action — your hooks fire on stdin/stdout the same way as Claude Code.
+
+> **Note**: VS Code Copilot also reads `~/.claude/settings.json` for hook configuration. If you've already run `agenthooks install`, your Claude routes will fire for Copilot too — but using the Copilot-specific routes above gives you correct field shapes (Copilot uses `sessionId` camelCase) and isolates per-agent policies.
 
 ### Testing with Gemini CLI
 
