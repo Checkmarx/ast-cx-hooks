@@ -33,7 +33,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/codec"
+	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
 )
 
 // RouteFunc is the type for handlers registered via AddRoute.
@@ -66,39 +66,29 @@ func Dispatch() {
 
 // Process reads JSON from stdin, passes it to handler, and writes the result to stdout.
 // Any stdin parse error causes a graceful exit (code 0) so a bad payload never blocks an agent.
-func Process[I any, O any](handler func(I) O) {
-	var in I
-	if err := codec.DecodeStdin(&in); err != nil {
-		os.Exit(0)
-	}
-	out := handler(in)
-	if err := codec.EncodeStdout(out); err != nil {
-		os.Exit(0)
-	}
-}
+// The implementation lives in internal/hookcore so platform adapters share it.
+func Process[I any, O any](handler func(I) O) { hookcore.Run(handler) }
 
 // ProcessE is like Process but allows the handler to signal a blocking error.
 // When handler returns a non-nil error, agenthooks writes the message to stderr
 // and exits with code 2, which causes supporting agents to surface the message
 // and block the pending action.
-func ProcessE[I any, O any](handler func(I) (O, error)) {
-	var in I
-	if err := codec.DecodeStdin(&in); err != nil {
-		os.Exit(0)
-	}
-	out, err := handler(in)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(2)
-	}
-	if err := codec.EncodeStdout(out); err != nil {
-		os.Exit(0)
-	}
-}
+func ProcessE[I any, O any](handler func(I) (O, error)) { hookcore.RunE(handler) }
 
 // ClearRoutes removes all registered handlers. Intended for use in tests.
 func ClearRoutes() {
 	routes = map[string]RouteFunc{}
+}
+
+// RouteNames returns the names of all currently registered routes, unsorted.
+// Intended for inspection and tests (e.g. verifying the route Catalog stays in
+// sync with what the unified handlers register).
+func RouteNames() []string {
+	names := make([]string, 0, len(routes))
+	for name := range routes {
+		names = append(names, name)
+	}
+	return names
 }
 
 func resolveRouteName() string {

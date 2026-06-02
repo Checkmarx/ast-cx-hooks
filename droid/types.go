@@ -40,7 +40,7 @@ type ToolPermission struct {
 	EventName      string         `json:"hookEventName,omitempty"`
 	Decision       string         `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask"
 	DecisionReason string         `json:"permissionDecisionReason,omitempty"`
-	RewrittenInput map[string]any `json:"updatedInput,omitempty"`
+	RewrittenInput json.RawMessage `json:"updatedInput,omitempty"`
 }
 
 // --- PostToolUse ---

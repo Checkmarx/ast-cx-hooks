@@ -1,6 +1,6 @@
 package cursor
 
-func boolPtr(b bool) *bool { return &b }
+import "encoding/json"
 
 // --- Permission helpers ---
 
@@ -56,4 +56,67 @@ func AcknowledgeSession() SessionStartResult {
 // InjectSessionEnv provides environment variables for the session.
 func InjectSessionEnv(env map[string]string) SessionStartResult {
 	return SessionStartResult{Env: env}
+}
+
+// --- preToolUse helpers ---
+
+// PermitTool allows the tool to run with no message.
+func PermitTool() ToolPreResult {
+	return ToolPreResult{Permission: "allow"}
+}
+
+// ForbidTool denies the tool and sends messages to the user and agent.
+func ForbidTool(userMsg, agentMsg string) ToolPreResult {
+	return ToolPreResult{Permission: "deny", UserNote: userMsg, AgentNote: agentMsg}
+}
+
+// RewriteToolInput allows the tool to run with a rewritten input payload.
+func RewriteToolInput(input json.RawMessage) ToolPreResult {
+	return ToolPreResult{Permission: "allow", UpdatedInput: input}
+}
+
+// --- postToolUse helpers ---
+
+// RewriteToolOutput replaces the tool output with the provided payload.
+func RewriteToolOutput(output json.RawMessage) ToolPostResult {
+	return ToolPostResult{UpdatedOutput: output}
+}
+
+// AddContext appends additional context for the agent after the tool runs.
+func AddContext(context string) ToolPostResult {
+	return ToolPostResult{ExtraContext: context}
+}
+
+// --- beforeReadFile helpers ---
+
+// PermitRead allows the file to be read.
+func PermitRead() ReadFilePreResult {
+	return ReadFilePreResult{Permission: "allow"}
+}
+
+// ForbidRead denies the file read and shows a message in the UI.
+func ForbidRead(userMsg string) ReadFilePreResult {
+	return ReadFilePreResult{Permission: "deny", UserNote: userMsg}
+}
+
+// --- subagentStart helpers ---
+
+// PermitSubagent allows the subagent to start.
+func PermitSubagent() SubagentStartResult {
+	return SubagentStartResult{Permission: "allow"}
+}
+
+// ForbidSubagent denies the subagent start and shows a message in the UI.
+func ForbidSubagent(userMsg string) SubagentStartResult {
+	return SubagentStartResult{Permission: "deny", UserNote: userMsg}
+}
+
+// --- subagentStop helpers ---
+
+// LetSubagentStop allows the subagent loop to end naturally.
+func LetSubagentStop() SubagentStopResult { return SubagentStopResult{} }
+
+// SendSubagentFollowup prevents stopping by sending an automatic follow-up message.
+func SendSubagentFollowup(message string) SubagentStopResult {
+	return SubagentStopResult{FollowupText: message}
 }

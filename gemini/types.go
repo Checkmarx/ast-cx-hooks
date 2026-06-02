@@ -79,6 +79,15 @@ type AfterToolResult struct {
 type AfterToolDetails struct {
 	// ExtraContext is appended to the tool result seen by the model.
 	ExtraContext string `json:"additionalContext,omitempty"`
+	// TailToolCall requests immediate execution of another tool whose result
+	// replaces the original tool response (programmatic tool routing).
+	TailToolCall *TailToolCall `json:"tailToolCallRequest,omitempty"`
+}
+
+// TailToolCall names a follow-up tool call to run after an AfterTool hook.
+type TailToolCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args,omitempty"`
 }
 
 // --- BeforeAgent ---
@@ -127,16 +136,39 @@ type AfterAgentDetails struct {
 
 // --- LLM request/response types ---
 
+// LLMMessage is one conversation turn in an LLM request.
+type LLMMessage struct {
+	Role    string `json:"role"` // "user", "model", "system"
+	Content string `json:"content"`
+}
+
 // LLMRequest represents a request to the Gemini model.
 type LLMRequest struct {
-	Model    string          `json:"model,omitempty"`
-	Messages json.RawMessage `json:"messages,omitempty"`
-	Config   json.RawMessage `json:"config,omitempty"`
+	Model      string          `json:"model,omitempty"`
+	Messages   []LLMMessage    `json:"messages,omitempty"`
+	Config     json.RawMessage `json:"config,omitempty"`
+	ToolConfig *ToolConfig     `json:"toolConfig,omitempty"`
+}
+
+// LLMCandidate is one candidate completion in an LLM response.
+type LLMCandidate struct {
+	Content struct {
+		Role  string   `json:"role"`
+		Parts []string `json:"parts"`
+	} `json:"content"`
+	FinishReason string `json:"finishReason,omitempty"`
+}
+
+// LLMUsageMetadata reports token usage for an LLM response.
+type LLMUsageMetadata struct {
+	TotalTokenCount int `json:"totalTokenCount,omitempty"`
 }
 
 // LLMResponse represents a response from the Gemini model.
+// Shape per Gemini hooks reference: { candidates: [...], usageMetadata: {...} }.
 type LLMResponse struct {
-	Content json.RawMessage `json:"content,omitempty"`
+	Candidates    []LLMCandidate    `json:"candidates,omitempty"`
+	UsageMetadata *LLMUsageMetadata `json:"usageMetadata,omitempty"`
 }
 
 // --- BeforeModel ---
