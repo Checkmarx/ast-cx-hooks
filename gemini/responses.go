@@ -1,6 +1,10 @@
 package gemini
 
-func boolPtr(b bool) *bool { return &b }
+import (
+	"encoding/json"
+
+	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+)
 
 // --- BeforeTool responses ---
 
@@ -12,6 +16,12 @@ func ApproveToolCall() BeforeToolResult {
 // DenyToolCall blocks the tool call; reason is fed back to the model.
 func DenyToolCall(reason string) BeforeToolResult {
 	return BeforeToolResult{ResultBase: ResultBase{Decision: "deny", Reason: reason}}
+}
+
+// ApproveToolCallWithInput allows the tool call but rewrites its input before execution.
+// Gemini merges the provided tool_input with the model's arguments.
+func ApproveToolCallWithInput(updated json.RawMessage) BeforeToolResult {
+	return BeforeToolResult{Details: &BeforeToolDetails{RewrittenInput: updated}}
 }
 
 // --- AfterTool responses ---
@@ -28,6 +38,19 @@ func AddToolAnnotation(ctx string) AfterToolResult {
 	}
 }
 
+// DenyToolResult hides the real tool output from the model and replaces it with reason.
+func DenyToolResult(reason string) AfterToolResult {
+	return AfterToolResult{ResultBase: ResultBase{Decision: "deny", Reason: reason}}
+}
+
+// ChainToolCall requests a follow-up tool call whose result replaces the original
+// tool response (Gemini's tailToolCallRequest).
+func ChainToolCall(name string, args json.RawMessage) AfterToolResult {
+	return AfterToolResult{
+		Details: &AfterToolDetails{TailToolCall: &TailToolCall{Name: name, Args: args}},
+	}
+}
+
 // --- BeforeAgent responses ---
 
 // AcceptTurn allows the agent turn to proceed.
@@ -38,7 +61,7 @@ func AcceptTurn() BeforeAgentResult {
 // RejectTurn blocks the agent turn; reason is shown to the user.
 func RejectTurn(reason string) BeforeAgentResult {
 	return BeforeAgentResult{
-		ResultBase: ResultBase{Proceed: boolPtr(false), Reason: reason},
+		ResultBase: ResultBase{Proceed: hookcore.Ptr(false), Reason: reason},
 	}
 }
 
@@ -49,6 +72,15 @@ func EnrichTurn(ctx string) BeforeAgentResult {
 	}
 }
 
+// DiscardTurn blocks the agent turn AND discards the user message from context.
+// Gemini uses decision="deny" for this; unlike RejectTurn (continue=false), which
+// blocks the turn but preserves the user message.
+func DiscardTurn(reason string) BeforeAgentResult {
+	return BeforeAgentResult{
+		ResultBase: ResultBase{Decision: "deny", Reason: reason},
+	}
+}
+
 // --- AfterAgent responses ---
 
 // AcceptResponse accepts the agent's response and ends the turn.
@@ -56,11 +88,73 @@ func AcceptResponse() AfterAgentResult {
 	return AfterAgentResult{}
 }
 
-// RetryWithFeedback rejects the response; reason is fed back as retry context.
+// RetryWithFeedback rejects the response and triggers a retry with reason as the new prompt.
+// Gemini triggers a retry via decision="deny"; continue=false would instead stop the session.
 func RetryWithFeedback(reason string) AfterAgentResult {
 	return AfterAgentResult{
-		ResultBase: ResultBase{Proceed: boolPtr(false), Reason: reason},
+		ResultBase: ResultBase{Decision: "deny", Reason: reason},
 	}
+}
+
+// ClearAgentContext accepts the response and clears the model's conversation memory.
+func ClearAgentContext() AfterAgentResult {
+	return AfterAgentResult{
+		Details: &AfterAgentDetails{ClearContext: true},
+	}
+}
+
+// --- BeforeModel responses ---
+
+// OverrideModelRequest replaces the outgoing LLM request before it is sent.
+func OverrideModelRequest(req LLMRequest) BeforeModelResult {
+	return BeforeModelResult{
+		Details: &BeforeModelDetails{OverrideRequest: &req},
+	}
+}
+
+// SyntheticModelResponse supplies a mock LLM response, skipping the actual LLM call.
+func SyntheticModelResponse(resp LLMResponse) BeforeModelResult {
+	return BeforeModelResult{
+		Details: &BeforeModelDetails{SyntheticResponse: &resp},
+	}
+}
+
+// --- AfterModel responses ---
+
+// OverrideModelResponse replaces the received LLM response chunk.
+func OverrideModelResponse(resp LLMResponse) AfterModelResult {
+	return AfterModelResult{
+		Details: &AfterModelDetails{OverrideResponse: &resp},
+	}
+}
+
+// --- BeforeToolSelection responses ---
+
+// SetToolConfig constrains which tools the model may select.
+func SetToolConfig(cfg ToolConfig) BeforeToolSelectionResult {
+	return BeforeToolSelectionResult{
+		Details: &ToolSelectionDetails{ToolConfig: &cfg},
+	}
+}
+
+// --- Universal output helpers ---
+//
+// These build a bare ResultBase that callers compose into a result's embedded
+// ResultBase field, e.g.:
+//
+//	r := gemini.DenyToolCall("nope")
+//	r.ResultBase = gemini.Silently()
+//
+// or merge selected fields onto an existing result's ResultBase.
+
+// Silently suppresses the hook's output from the user (suppressOutput).
+func Silently() ResultBase {
+	return ResultBase{MuteOutput: true}
+}
+
+// WithSystemMessage attaches a system message to the result (systemMessage).
+func WithSystemMessage(msg string) ResultBase {
+	return ResultBase{SystemNote: msg}
 }
 
 // --- SessionStart responses ---

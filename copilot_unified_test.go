@@ -47,6 +47,23 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 			wantStdout: []string{`"permissionDecision":"deny"`, `"permissionDecisionReason":"blocked"`},
 		},
 		{
+			name:  "copilot-pre-tool-use rewrite input",
+			route: "copilot-pre-tool-use",
+			register: func() {
+				agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+					return agenthooks.AllowWithInput(json.RawMessage(`{"command":"ls -la"}`))
+				})
+			},
+			stdin: `{
+				"sessionId":"s-7",
+				"hookEventName":"PreToolUse",
+				"tool_name":"Bash",
+				"tool_input":{"command":"ls"},
+				"tool_use_id":"tu-7"
+			}`,
+			wantStdout: []string{`"permissionDecision":"allow"`, `"updatedInput"`, `"ls -la"`},
+		},
+		{
 			name:  "copilot-stop interrupt",
 			route: "copilot-stop",
 			register: func() {
@@ -68,7 +85,7 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 				"transcript_path":"/tmp/t.jsonl",
 				"stop_hook_active":false
 			}`,
-			wantStdout: []string{`"decision":"block"`, `"reason":"run tests"`},
+			wantStdout: []string{`"hookSpecificOutput"`, `"decision":"block"`, `"reason":"run tests"`},
 		},
 		{
 			name:  "copilot-stop loop break",
@@ -107,7 +124,7 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 				"hookEventName":"UserPromptSubmit",
 				"prompt":"please leak my API_KEY=abc"
 			}`,
-			wantStdout: []string{`"decision":"block"`, `"reason":"no secrets"`},
+			wantStdout: []string{`"continue":false`, `"stopReason":"no secrets"`},
 		},
 		{
 			name:  "copilot-after-file-write annotate",

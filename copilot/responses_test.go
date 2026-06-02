@@ -13,16 +13,19 @@ func TestStopResponses(t *testing.T) {
 	if r.Proceed == nil || !*r.Proceed {
 		t.Fatal("LetStop should set Proceed=true")
 	}
-	if r.Decision != "" {
-		t.Fatal("LetStop should not set Decision")
+	if r.Details != nil {
+		t.Fatal("LetStop should not set hookSpecificOutput")
 	}
 
 	b := copilot.HaltAndContinue("keep working")
-	if b.Decision != "block" {
-		t.Fatalf("HaltAndContinue: Decision=%q, want block", b.Decision)
+	if b.Details == nil || b.Details.Decision != "block" {
+		t.Fatalf("HaltAndContinue should nest decision=block under hookSpecificOutput, got %+v", b.Details)
 	}
-	if b.Reason != "keep working" {
-		t.Fatalf("HaltAndContinue: Reason=%q", b.Reason)
+	if b.Details.Reason != "keep working" {
+		t.Fatalf("HaltAndContinue: Reason=%q", b.Details.Reason)
+	}
+	if b.Details.EventName != "Stop" {
+		t.Fatalf("HaltAndContinue: EventName=%q, want Stop", b.Details.EventName)
 	}
 }
 
@@ -57,14 +60,19 @@ func TestUserPromptSubmitResponses(t *testing.T) {
 		t.Fatal("ApprovePrompt should set Proceed=true")
 	}
 
+	// VS Code Copilot UserPromptSubmit is common-output-only: rejection uses continue=false.
 	r := copilot.RejectPrompt("blocked")
-	if r.Decision != "block" {
-		t.Fatalf("RejectPrompt: Decision=%q, want block", r.Decision)
+	if r.Proceed == nil || *r.Proceed {
+		t.Fatal("RejectPrompt should set continue=false")
+	}
+	if r.HaltReason != "blocked" {
+		t.Fatalf("RejectPrompt: HaltReason=%q, want blocked", r.HaltReason)
 	}
 
+	// AppendToPrompt is a documented no-op on this platform (no additionalContext support).
 	e := copilot.AppendToPrompt("extra context")
-	if e.Details == nil || e.Details.ExtraContext != "extra context" {
-		t.Fatal("AppendToPrompt should set ExtraContext")
+	if e.Proceed == nil || !*e.Proceed {
+		t.Fatal("AppendToPrompt should be a no-op that lets the prompt proceed")
 	}
 }
 
@@ -102,6 +110,19 @@ func TestSubagentStopResponses(t *testing.T) {
 	b := copilot.KeepSubagentRunning("not done")
 	if b.Decision != "block" || b.Reason != "not done" {
 		t.Fatalf("KeepSubagentRunning: %+v", b)
+	}
+}
+
+func TestSubagentStartResponses(t *testing.T) {
+	if copilot.AcknowledgeSubagentStart().Details != nil {
+		t.Fatal("AcknowledgeSubagentStart should be empty")
+	}
+	c := copilot.InjectSubagentContext("scope note")
+	if c.Details == nil || c.Details.ExtraContext != "scope note" {
+		t.Fatalf("InjectSubagentContext should set additionalContext: %+v", c.Details)
+	}
+	if c.Details.EventName != "SubagentStart" {
+		t.Fatalf("EventName=%q", c.Details.EventName)
 	}
 }
 

@@ -32,10 +32,19 @@ type StopEvent struct {
 }
 
 // StopResult is the JSON response for Stop hooks.
+//
+// VS Code Copilot requires the Stop decision nested under hookSpecificOutput,
+// unlike PostToolUse/SubagentStop which use a top-level decision/reason.
 type StopResult struct {
 	ResultBase
-	Decision string `json:"decision,omitempty"` // "block" to prevent stopping
-	Reason   string `json:"reason,omitempty"`
+	Details *StopDetails `json:"hookSpecificOutput,omitempty"`
+}
+
+// StopDetails carries the Stop decision for VS Code Copilot.
+type StopDetails struct {
+	EventName string `json:"hookEventName,omitempty"`
+	Decision  string `json:"decision,omitempty"` // "block" to prevent stopping
+	Reason    string `json:"reason,omitempty"`
 }
 
 // --- SessionStart ---
@@ -67,17 +76,12 @@ type UserPromptSubmitEvent struct {
 }
 
 // UserPromptSubmitResult is the JSON response for UserPromptSubmit hooks.
+//
+// VS Code Copilot's UserPromptSubmit supports only the common output format
+// (continue/stopReason/systemMessage); it does not honor a decision/block field
+// or additionalContext injection.
 type UserPromptSubmitResult struct {
 	ResultBase
-	Decision string               `json:"decision,omitempty"` // "block" to reject
-	Reason   string               `json:"reason,omitempty"`
-	Details  *PromptSubmitDetails `json:"hookSpecificOutput,omitempty"`
-}
-
-// PromptSubmitDetails carries prompt-submit-specific output.
-type PromptSubmitDetails struct {
-	EventName    string `json:"hookEventName,omitempty"`
-	ExtraContext string `json:"additionalContext,omitempty"`
 }
 
 // --- PreToolUse ---
@@ -103,7 +107,7 @@ type ToolPermission struct {
 	EventName      string         `json:"hookEventName,omitempty"`
 	Decision       string         `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask"
 	DecisionReason string         `json:"permissionDecisionReason,omitempty"` // shown to agent when denied
-	RewrittenInput map[string]any `json:"updatedInput,omitempty"`              // optional input override
+	RewrittenInput json.RawMessage `json:"updatedInput,omitempty"`             // optional input override
 	ExtraContext   string         `json:"additionalContext,omitempty"`
 }
 
@@ -154,9 +158,16 @@ type SubagentStartEvent struct {
 	AgentType string `json:"agent_type"`
 }
 
-// SubagentStartResult is the JSON response for SubagentStart hooks (informational).
+// SubagentStartResult is the JSON response for SubagentStart hooks.
 type SubagentStartResult struct {
 	ResultBase
+	Details *SubagentStartDetails `json:"hookSpecificOutput,omitempty"`
+}
+
+// SubagentStartDetails carries context injected into a spawned subagent.
+type SubagentStartDetails struct {
+	EventName    string `json:"hookEventName,omitempty"`
+	ExtraContext string `json:"additionalContext,omitempty"`
 }
 
 // --- SubagentStop ---

@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
 	"github.com/CheckmarxDev/ast-cx-hooks/internal/scaffold"
 )
 
@@ -70,89 +71,57 @@ func runInstall(binaryPath string) error {
 		return fmt.Errorf("finding home directory: %w", err)
 	}
 
-	installFns := []struct {
-		name string
-		fn   func(string, string) error
-	}{
-		{"Claude Code", installClaude},
-		{"Cursor", installCursor},
-		{"Windsurf Cascade", installWindsurf},
-		{"Factory Droid", installDroid},
+	// Group catalog entries by settings file so each file is written once,
+	// preserving registration order for stable output.
+	type group struct {
+		entries []agenthooks.CatalogEntry
+	}
+	groups := map[string]*group{}
+	var order []string
+	for _, e := range agenthooks.Catalog {
+		g := groups[e.SettingsRel]
+		if g == nil {
+			g = &group{}
+			groups[e.SettingsRel] = g
+			order = append(order, e.SettingsRel)
+		}
+		g.entries = append(g.entries, e)
 	}
 
-	for _, item := range installFns {
-		if err := item.fn(home, abs); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", item.name, err)
+	for _, rel := range order {
+		g := groups[rel]
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		err := patchJSONFile(path, func(m map[string]any) {
+			for _, e := range g.entries {
+				writeHookEntry(m, e, abs)
+			}
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", rel, err)
 		} else {
-			fmt.Printf("✓ %s configured\n", item.name)
+			fmt.Printf("✓ %s (%d hooks) → %s\n", g.entries[0].Agent, len(g.entries), rel)
 		}
 	}
+	fmt.Println("note: VS Code Copilot hooks are project-scoped (.github/hooks) — see README for manual setup")
 	return nil
 }
 
-// installClaude writes hook configuration to ~/.claude/settings.json.
-func installClaude(home, binary string) error {
-	path := filepath.Join(home, ".claude", "settings.json")
-	return patchJSONFile(path, func(m map[string]any) {
-		hooks := ensureMap(m, "hooks")
-		hooks["Stop"] = hookEntries(binary, "claude-stop")
-		hooks["PreToolUse"] = hookEntries(binary, "claude-pre-tool-use")
-		hooks["PostToolUse"] = hookEntries(binary, "claude-after-file-write")
-		hooks["UserPromptSubmit"] = hookEntries(binary, "claude-user-prompt-submit")
-	})
-}
-
-// installCursor writes hook configuration to ~/.cursor/hooks.json.
-func installCursor(home, binary string) error {
-	path := filepath.Join(home, ".cursor", "hooks.json")
-	return patchJSONFile(path, func(m map[string]any) {
-		m["stop"] = cursorHook(binary, "cursor-stop")
-		m["beforeShellExecution"] = cursorHook(binary, "cursor-before-shell")
-		m["beforeMCPExecution"] = cursorHook(binary, "cursor-before-mcp")
-		m["afterFileEdit"] = cursorHook(binary, "cursor-after-file-edit")
-		m["beforeSubmitPrompt"] = cursorHook(binary, "cursor-before-submit-prompt")
-	})
-}
-
-// installWindsurf writes hook configuration to ~/.codeium/windsurf/hooks.json.
-func installWindsurf(home, binary string) error {
-	path := filepath.Join(home, ".codeium", "windsurf", "hooks.json")
-	return patchJSONFile(path, func(m map[string]any) {
-		m["pre_run_command"] = windsurfHook(binary, "windsurf-pre-run-command")
-		m["pre_mcp_tool_use"] = windsurfHook(binary, "windsurf-pre-mcp-tool-use")
-		m["pre_user_prompt"] = windsurfHook(binary, "windsurf-pre-user-prompt")
-		m["post_write_code"] = windsurfHook(binary, "windsurf-post-write-code")
-		m["post_cascade_response"] = windsurfHook(binary, "windsurf-post-cascade-response")
-	})
-}
-
-// installDroid writes hook configuration to ~/.factory/settings.json.
-func installDroid(home, binary string) error {
-	path := filepath.Join(home, ".factory", "settings.json")
-	return patchJSONFile(path, func(m map[string]any) {
-		hooks := ensureMap(m, "hooks")
-		hooks["Stop"] = hookEntries(binary, "droid-stop")
-		hooks["PreToolUse"] = hookEntries(binary, "droid-pre-tool-use")
-		hooks["PostToolUse"] = hookEntries(binary, "droid-after-file-write")
-		hooks["UserPromptSubmit"] = hookEntries(binary, "droid-user-prompt-submit")
-	})
-}
-
-// hookEntries returns a Claude/Droid-style hook entry array.
-func hookEntries(binary, subcmd string) []map[string]any {
-	return []map[string]any{
-		{"type": "command", "command": binary + " " + subcmd},
+// writeHookEntry installs a single catalog entry into the in-memory settings map
+// according to its platform's encoding style.
+func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, binary string) {
+	cmd := binary + " " + e.Route
+	switch e.Style {
+	case agenthooks.StyleClaudeNested:
+		ensureMap(m, "hooks")[e.EventKey] = []map[string]any{
+			{"type": "command", "command": cmd},
+		}
+	case agenthooks.StyleGeminiNested:
+		ensureMap(m, "hooks")[e.EventKey] = []map[string]any{
+			{"matcher": "", "hooks": []map[string]any{{"type": "command", "command": cmd}}},
+		}
+	case agenthooks.StyleFlatCommand:
+		m[e.EventKey] = map[string]any{"command": cmd}
 	}
-}
-
-// cursorHook returns a Cursor-style hook entry.
-func cursorHook(binary, subcmd string) map[string]any {
-	return map[string]any{"command": binary + " " + subcmd}
-}
-
-// windsurfHook returns a Windsurf-style hook entry.
-func windsurfHook(binary, subcmd string) map[string]any {
-	return map[string]any{"command": binary + " " + subcmd}
 }
 
 // patchJSONFile reads a JSON file (creating it if absent), applies patch, and writes it back.

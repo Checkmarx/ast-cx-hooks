@@ -1,17 +1,22 @@
 package copilot
 
-func boolPtr(b bool) *bool { return &b }
+import (
+	"encoding/json"
+
+	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+)
 
 // --- Stop responses ---
 
 // LetStop returns a decision that allows Copilot to stop normally.
 func LetStop() StopResult {
-	return StopResult{ResultBase: ResultBase{Proceed: boolPtr(true)}}
+	return StopResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
 // HaltAndContinue blocks Copilot from stopping and provides feedback to continue working.
+// VS Code Copilot reads the Stop decision from hookSpecificOutput, not top-level.
 func HaltAndContinue(reason string) StopResult {
-	return StopResult{Decision: "block", Reason: reason}
+	return StopResult{Details: &StopDetails{EventName: "Stop", Decision: "block", Reason: reason}}
 }
 
 // --- PreToolUse responses ---
@@ -29,6 +34,13 @@ func ApproveToolUseWithNote(note string) PreToolUseResult {
 		Details: &ToolPermission{
 			EventName: "PreToolUse", Decision: "allow", DecisionReason: note,
 		},
+	}
+}
+
+// ApproveToolUseWithInput allows the tool call but rewrites its input before execution.
+func ApproveToolUseWithInput(updated json.RawMessage) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{EventName: "PreToolUse", Decision: "allow", RewrittenInput: updated},
 	}
 }
 
@@ -73,20 +85,20 @@ func RejectToolResult(reason string) PostToolUseResult {
 
 // ApprovePrompt allows the prompt to proceed.
 func ApprovePrompt() UserPromptSubmitResult {
-	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: boolPtr(true)}}
+	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
-// RejectPrompt blocks the prompt and shows reason to the user.
+// RejectPrompt blocks the prompt submission.
+// VS Code Copilot's UserPromptSubmit supports only the common output format,
+// so rejection uses continue=false + stopReason (not a decision/block field).
 func RejectPrompt(reason string) UserPromptSubmitResult {
-	return UserPromptSubmitResult{Decision: "block", Reason: reason}
+	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(false), HaltReason: reason}}
 }
 
-// AppendToPrompt allows the prompt and injects additional context for the agent.
-func AppendToPrompt(ctx string) UserPromptSubmitResult {
-	return UserPromptSubmitResult{
-		ResultBase: ResultBase{Proceed: boolPtr(true)},
-		Details:    &PromptSubmitDetails{EventName: "UserPromptSubmit", ExtraContext: ctx},
-	}
+// AppendToPrompt is a no-op on VS Code Copilot: UserPromptSubmit does not support
+// additionalContext injection (common output format only). Retained for unified-API parity.
+func AppendToPrompt(string) UserPromptSubmitResult {
+	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
 // --- SessionStart responses ---
@@ -103,11 +115,23 @@ func InjectSessionContext(ctx string) SessionStartResult {
 	}
 }
 
+// --- SubagentStart responses ---
+
+// AcknowledgeSubagentStart lets a subagent spawn with no injected context.
+func AcknowledgeSubagentStart() SubagentStartResult { return SubagentStartResult{} }
+
+// InjectSubagentContext injects additional context into a spawned subagent's conversation.
+func InjectSubagentContext(ctx string) SubagentStartResult {
+	return SubagentStartResult{
+		Details: &SubagentStartDetails{EventName: "SubagentStart", ExtraContext: ctx},
+	}
+}
+
 // --- SubagentStop responses ---
 
 // LetSubagentStop allows the subagent to stop normally.
 func LetSubagentStop() SubagentStopResult {
-	return SubagentStopResult{ResultBase: ResultBase{Proceed: boolPtr(true)}}
+	return SubagentStopResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
 // KeepSubagentRunning blocks subagent shutdown with feedback for it to continue.

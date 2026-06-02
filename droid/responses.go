@@ -1,12 +1,16 @@
 package droid
 
-func boolPtr(b bool) *bool { return &b }
+import (
+	"encoding/json"
+
+	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+)
 
 // --- Stop responses ---
 
 // LetStop allows Droid to stop normally.
 func LetStop() StopResult {
-	return StopResult{ResultBase: ResultBase{Proceed: boolPtr(true)}}
+	return StopResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
 // HaltAndContinue blocks Droid from stopping and provides feedback to continue.
@@ -20,6 +24,13 @@ func HaltAndContinue(reason string) StopResult {
 func ApproveToolUse() PreToolUseResult {
 	return PreToolUseResult{
 		Details: &ToolPermission{EventName: "PreToolUse", Decision: "allow"},
+	}
+}
+
+// ApproveToolUseWithInput allows the tool call but rewrites its input before execution.
+func ApproveToolUseWithInput(updated json.RawMessage) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{EventName: "PreToolUse", Decision: "allow", RewrittenInput: updated},
 	}
 }
 
@@ -64,7 +75,7 @@ func RejectToolResult(reason string) PostToolUseResult {
 
 // ApprovePrompt allows the prompt to proceed.
 func ApprovePrompt() UserPromptSubmitResult {
-	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: boolPtr(true)}}
+	return UserPromptSubmitResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
 }
 
 // RejectPrompt blocks the prompt and shows reason to the user.
@@ -75,9 +86,31 @@ func RejectPrompt(reason string) UserPromptSubmitResult {
 // AppendToPrompt allows the prompt and injects additional context.
 func AppendToPrompt(ctx string) UserPromptSubmitResult {
 	return UserPromptSubmitResult{
-		ResultBase: ResultBase{Proceed: boolPtr(true)},
+		ResultBase: ResultBase{Proceed: hookcore.Ptr(true)},
 		Details:    &PromptSubmitDetails{EventName: "UserPromptSubmit", ExtraContext: ctx},
 	}
+}
+
+// --- SubagentStop responses ---
+
+// LetSubagentStop allows a sub-droid task to stop normally.
+func LetSubagentStop() SubagentStopResult {
+	return SubagentStopResult{ResultBase: ResultBase{Proceed: hookcore.Ptr(true)}}
+}
+
+// HaltSubagent blocks the subagent from stopping and provides feedback to continue.
+func HaltSubagent(reason string) SubagentStopResult {
+	return SubagentStopResult{Decision: "block", Reason: reason}
+}
+
+// --- Notification responses ---
+
+// AcknowledgeNotification accepts a notification with no action.
+func AcknowledgeNotification() NotificationResult { return NotificationResult{} }
+
+// NotifyWithSystemMessage surfaces a system message to the user on a notification.
+func NotifyWithSystemMessage(msg string) NotificationResult {
+	return NotificationResult{ResultBase: ResultBase{SystemNote: msg}}
 }
 
 // --- SessionStart responses ---
