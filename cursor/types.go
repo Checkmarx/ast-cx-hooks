@@ -92,6 +92,15 @@ type FileEditEvent struct {
 // FileEditResult is the response type for afterFileEdit hooks (unused by Cursor).
 type FileEditResult struct{}
 
+// FileReadPreEvent is the payload for beforeReadFile hooks.
+type FileReadPreEvent struct {
+	EventBase
+	FilePath string `json:"file_path"`
+}
+
+// FileReadPreResult is the response type for beforeReadFile hooks.
+type FileReadPreResult = PermissionResult
+
 // --- Prompt ---
 
 // Attachment represents a file or context item attached to a prompt.
