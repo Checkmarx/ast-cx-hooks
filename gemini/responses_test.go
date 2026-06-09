@@ -44,9 +44,46 @@ func TestAfterToolOutputRewrite(t *testing.T) {
 	}
 }
 
+// TestDenyToolResultWithContext verifies the AfterTool reject-with-context builder
+// emits BOTH the block (decision="deny" + reason) AND additionalContext, and that a
+// round-trip back through AfterToolResult preserves both.
+func TestDenyToolResultWithContext(t *testing.T) {
+	r := gemini.DenyToolResultWithContext("secrets detected", "run the cx-remediation skill")
+	if r.Decision != "deny" || r.Reason != "secrets detected" {
+		t.Fatalf("DenyToolResultWithContext base: %+v", r.ResultBase)
+	}
+	if r.Details == nil || r.Details.ExtraContext != "run the cx-remediation skill" {
+		t.Fatalf("DenyToolResultWithContext details: %+v", r.Details)
+	}
+	b, _ := json.Marshal(r)
+	out := string(b)
+	if !strings.Contains(out, `"decision":"deny"`) {
+		t.Fatalf("decision not emitted: %s", out)
+	}
+	if !strings.Contains(out, `"reason":"secrets detected"`) {
+		t.Fatalf("reason not emitted: %s", out)
+	}
+	if !strings.Contains(out, `"additionalContext":"run the cx-remediation skill"`) {
+		t.Fatalf("additionalContext not emitted: %s", out)
+	}
+
+	// Round-trip back to confirm both decision and additionalContext survive.
+	var rt gemini.AfterToolResult
+	if err := json.Unmarshal(b, &rt); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rt.Decision != "deny" || rt.Reason != "secrets detected" {
+		t.Fatalf("round-trip base: %+v", rt.ResultBase)
+	}
+	if rt.Details == nil || rt.Details.ExtraContext != "run the cx-remediation skill" {
+		t.Fatalf("round-trip details: %+v", rt.Details)
+	}
+}
+
 // TestLLMResponseShape verifies the corrected llm_response shape (candidates + usageMetadata)
 // rather than the previous (non-existent) top-level content field.
 func TestLLMResponseShape(t *testing.T) {
+	// In the hook wire format, content.parts is a plain string array.
 	raw := `{"candidates":[{"content":{"role":"model","parts":["hi"]},"finishReason":"STOP"}],"usageMetadata":{"totalTokenCount":42}}`
 	var r gemini.LLMResponse
 	if err := json.Unmarshal([]byte(raw), &r); err != nil {

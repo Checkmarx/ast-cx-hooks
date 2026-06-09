@@ -79,7 +79,7 @@ func TestPlatformAdaptersEndToEnd(t *testing.T) {
 					return agenthooks.Allow()
 				})
 			},
-			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Bash","tool_input":{"command":"ls"}}`,
+			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Execute","tool_input":{"command":"ls"}}`,
 			wantStdout: []string{`"permissionDecision":"allow"`},
 		},
 		{
@@ -118,7 +118,7 @@ func TestPlatformAdaptersEndToEnd(t *testing.T) {
 					return agenthooks.AnnotateWrite("run gofmt")
 				})
 			},
-			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Write","tool_input":{"file_path":"/r/main.go","content":"package main"}}`,
+			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Create","tool_input":{"file_path":"/r/main.go","content":"package main"}}`,
 			wantStdout: []string{`"additionalContext":"run gofmt"`},
 		},
 		{

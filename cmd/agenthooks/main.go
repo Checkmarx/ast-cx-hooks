@@ -8,6 +8,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -107,38 +108,65 @@ func runInstall(binaryPath string) error {
 }
 
 // writeHookEntry installs a single catalog entry into the in-memory settings map
-// according to its platform's encoding style.
+// according to its platform's encoding style. Nested styles APPEND to (and de-dup
+// within) the existing array so a user's own hook entries for the same event are
+// preserved; the flat style is single-command per key by design.
 func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, binary string) {
 	cmd := binary + " " + e.Route
 	switch e.Style {
 	case agenthooks.StyleClaudeNested:
-		ensureMap(m, "hooks")[e.EventKey] = []map[string]any{
-			{"type": "command", "command": cmd},
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
 		}
 	case agenthooks.StyleGeminiNested:
-		ensureMap(m, "hooks")[e.EventKey] = []map[string]any{
-			{"matcher": "", "hooks": []map[string]any{{"type": "command", "command": cmd}}},
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{
+				"matcher": "",
+				"hooks":   []any{map[string]any{"type": "command", "command": cmd}},
+			})
+		}
+	case agenthooks.StyleCopilotCLINested:
+		// Same nesting as Claude, plus a top-level "version": 1 the CLI requires.
+		if _, ok := m["version"]; !ok {
+			m["version"] = 1
+		}
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
 		}
 	case agenthooks.StyleFlatCommand:
 		m[e.EventKey] = map[string]any{"command": cmd}
 	}
 }
 
-// patchJSONFile reads a JSON file (creating it if absent), applies patch, and writes it back.
+// patchJSONFile reads a JSON file (creating it if absent), applies patch, and writes
+// it back. If the existing file is non-empty but not valid JSON it ABORTS without
+// writing (so user config is never clobbered), and it backs up the original to
+// <path>.bak before modifying it.
 func patchJSONFile(path string, patch func(map[string]any)) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	m := map[string]any{}
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &m) //nolint:errcheck
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &m); err != nil {
+			return fmt.Errorf("refusing to overwrite %s: existing file is not valid JSON: %w", path, err)
+		}
+		if err := os.WriteFile(path+".bak", data, 0o644); err != nil {
+			return fmt.Errorf("writing backup %s.bak: %w", path, err)
+		}
 	}
 	patch(m)
-	data, err := json.MarshalIndent(m, "", "  ")
+	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	return os.WriteFile(path, append(out, '\n'), 0o644)
 }
 
 func ensureMap(m map[string]any, key string) map[string]any {
@@ -150,6 +178,32 @@ func ensureMap(m map[string]any, key string) map[string]any {
 	sub := map[string]any{}
 	m[key] = sub
 	return sub
+}
+
+// toSlice returns v as a []any (the shape decoded JSON arrays take), or nil.
+func toSlice(v any) []any {
+	if s, ok := v.([]any); ok {
+		return s
+	}
+	return nil
+}
+
+// containsCommand reports whether arr already holds a hook entry for cmd, looking
+// one level into Gemini's nested {matcher, hooks:[...]} groups.
+func containsCommand(arr []any, cmd string) bool {
+	for _, it := range arr {
+		m, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["command"] == cmd {
+			return true
+		}
+		if inner, ok := m["hooks"].([]any); ok && containsCommand(inner, cmd) {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================

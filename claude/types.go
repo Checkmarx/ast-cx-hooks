@@ -4,11 +4,17 @@ import "encoding/json"
 
 // EventBase contains fields present in every Claude Code hook payload.
 type EventBase struct {
-	SessionID      string `json:"session_id"`
-	TranscriptPath string `json:"transcript_path"`
-	WorkDir        string `json:"cwd"`
-	PermissionMode string `json:"permission_mode"`
-	EventName      string `json:"hook_event_name"`
+	SessionID      string  `json:"session_id"`
+	TranscriptPath string  `json:"transcript_path"`
+	WorkDir        string  `json:"cwd"`
+	PermissionMode string  `json:"permission_mode"`
+	EventName      string  `json:"hook_event_name"`
+	Effort         *Effort `json:"effort,omitempty"`
+}
+
+// Effort carries the agent's configured effort level.
+type Effort struct {
+	Level string `json:"level"`
 }
 
 // ResultBase contains fields accepted by most Claude Code hook responses.
@@ -16,7 +22,11 @@ type ResultBase struct {
 	Proceed    *bool  `json:"continue,omitempty"`
 	HaltReason string `json:"stopReason,omitempty"`
 	MuteOutput bool   `json:"suppressOutput,omitempty"`
-	SystemNote string  `json:"systemMessage,omitempty"`
+	SystemNote string `json:"systemMessage,omitempty"`
+	// TerminalSequence is an allow-listed terminal escape sequence (OSC 0/1/2/9/99/777
+	// or BEL) Claude Code emits on the hook's behalf — e.g. a desktop notification or
+	// window title. A universal output field available on every hook result.
+	TerminalSequence string `json:"terminalSequence,omitempty"`
 }
 
 // --- Stop ---
@@ -27,6 +37,9 @@ type StopEvent struct {
 	// HookActive is true when the current response was triggered by a previous Stop hook,
 	// allowing handlers to detect and break continuation loops.
 	HookActive bool `json:"stop_hook_active"`
+	// LastAssistantMessage is the text of Claude's final response, so handlers can
+	// inspect it without parsing the transcript.
+	LastAssistantMessage string `json:"last_assistant_message,omitempty"`
 }
 
 // StopResult is the JSON response for Stop hooks.
@@ -96,11 +109,11 @@ type PreToolUseResult struct {
 
 // ToolPermission carries the permission decision for PreToolUse hooks.
 type ToolPermission struct {
-	EventName      string         `json:"hookEventName,omitempty"`
-	Decision       string         `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask", "defer"
-	DecisionReason string         `json:"permissionDecisionReason,omitempty"` // shown to agent when denied
+	EventName      string          `json:"hookEventName,omitempty"`
+	Decision       string          `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask", "defer"
+	DecisionReason string          `json:"permissionDecisionReason,omitempty"` // shown to agent when denied
 	RewrittenInput json.RawMessage `json:"updatedInput,omitempty"`             // optional input override
-	ExtraContext   string         `json:"additionalContext,omitempty"`        // appended context for the agent
+	ExtraContext   string          `json:"additionalContext,omitempty"`        // appended context for the agent
 }
 
 // --- PostToolUse ---
@@ -142,8 +155,8 @@ type UserPromptSubmitEvent struct {
 // UserPromptSubmitResult is the JSON response for UserPromptSubmit hooks.
 type UserPromptSubmitResult struct {
 	ResultBase
-	Decision string              `json:"decision,omitempty"` // "block" to reject
-	Reason   string              `json:"reason,omitempty"`
+	Decision string               `json:"decision,omitempty"` // "block" to reject
+	Reason   string               `json:"reason,omitempty"`
 	Details  *PromptSubmitDetails `json:"hookSpecificOutput,omitempty"`
 }
 
@@ -231,6 +244,8 @@ type SubagentStopEvent struct {
 	// HookActive is true when the subagent response was triggered by a previous SubagentStop hook,
 	// allowing handlers to detect and break continuation loops.
 	HookActive bool `json:"stop_hook_active"`
+	// LastAssistantMessage is the subagent's final assistant message.
+	LastAssistantMessage string `json:"last_assistant_message"`
 }
 
 // SubagentStopResult is the JSON response for SubagentStop hooks.
@@ -245,20 +260,22 @@ type SubagentStopResult struct {
 // PostToolUseFailureEvent is the payload for PostToolUseFailure hooks (fired after a tool errors).
 type PostToolUseFailureEvent struct {
 	EventBase
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
-	Error     string          `json:"error"`
-	ToolUseID string          `json:"tool_use_id"`
-	AgentID   string          `json:"agent_id"`
-	AgentType string          `json:"agent_type"`
+	ToolName    string          `json:"tool_name"`
+	ToolInput   json.RawMessage `json:"tool_input"`
+	Error       string          `json:"error"`
+	ToolUseID   string          `json:"tool_use_id"`
+	AgentID     string          `json:"agent_id"`
+	AgentType   string          `json:"agent_type"`
+	IsInterrupt bool            `json:"is_interrupt"`
+	DurationMs  int64           `json:"duration_ms"`
 }
 
 // PostToolUseFailureResult is the JSON response for PostToolUseFailure hooks.
+// Per the Claude Code hooks spec this hook cannot block; its only control is
+// additionalContext (carried in Details).
 type PostToolUseFailureResult struct {
 	ResultBase
-	Decision string                     `json:"decision,omitempty"` // "block" to inject feedback
-	Reason   string                     `json:"reason,omitempty"`
-	Details  *PostToolUseFailureDetails `json:"hookSpecificOutput,omitempty"`
+	Details *PostToolUseFailureDetails `json:"hookSpecificOutput,omitempty"`
 }
 
 // PostToolUseFailureDetails carries post-tool-failure-specific output.
@@ -273,9 +290,8 @@ type PostToolUseFailureDetails struct {
 // (fired when the agent requests permission to run a tool).
 type PermissionRequestEvent struct {
 	EventBase
-	ToolName       string          `json:"tool_name"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	PermissionMode string          `json:"permission_mode"`
+	ToolName  string          `json:"tool_name"`
+	ToolInput json.RawMessage `json:"tool_input"`
 }
 
 // PermissionRequestResult is the JSON response for PermissionRequest hooks.
@@ -288,12 +304,15 @@ type PermissionRequestResult struct {
 type PermissionRequestDetails struct {
 	EventName string              `json:"hookEventName,omitempty"`
 	Decision  *PermissionDecision `json:"decision,omitempty"`
+	Message   string              `json:"message,omitempty"`
+	Interrupt bool                `json:"interrupt,omitempty"`
 }
 
 // PermissionDecision is the nested allow/deny decision for PermissionRequest hooks.
 type PermissionDecision struct {
-	Behavior     string          `json:"behavior"` // "allow" or "deny"
-	UpdatedInput json.RawMessage `json:"updatedInput,omitempty"`
+	Behavior           string          `json:"behavior"` // "allow" or "deny"
+	UpdatedInput       json.RawMessage `json:"updatedInput,omitempty"`
+	UpdatedPermissions json.RawMessage `json:"updatedPermissions,omitempty"`
 }
 
 // --- Setup ---
@@ -341,9 +360,8 @@ type InstructionsLoadedResult struct {
 // (fired when a tool permission is denied).
 type PermissionDeniedEvent struct {
 	EventBase
-	ToolName       string          `json:"tool_name"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	PermissionMode string          `json:"permission_mode"`
+	ToolName  string          `json:"tool_name"`
+	ToolInput json.RawMessage `json:"tool_input"`
 }
 
 // PermissionDeniedResult is the JSON response for PermissionDenied hooks.
@@ -364,8 +382,8 @@ type PermissionDeniedDetails struct {
 // ConfigChangeEvent is the payload for ConfigChange hooks (fired when configuration changes).
 type ConfigChangeEvent struct {
 	EventBase
-	ConfigSource string `json:"config_source"` // user_settings, project_settings, local_settings, policy_settings, skills
-	ConfigPath   string `json:"config_path"`
+	Source   string `json:"source"` // user_settings, project_settings, local_settings, policy_settings, skills
+	FilePath string `json:"file_path"`
 }
 
 // ConfigChangeResult is the JSON response for ConfigChange hooks.
@@ -381,6 +399,7 @@ type ConfigChangeResult struct {
 // Observational only.
 type CwdChangedEvent struct {
 	EventBase
+	OldCwd string `json:"old_cwd"`
 	NewCwd string `json:"new_cwd"`
 }
 
@@ -395,8 +414,8 @@ type CwdChangedResult struct {
 // Observational only.
 type FileChangedEvent struct {
 	EventBase
-	FilePath   string `json:"file_path"`
-	ChangeType string `json:"change_type"` // "modified", "created", "deleted"
+	FilePath string `json:"file_path"`
+	Event    string `json:"event"` // "change", "add", "unlink"
 }
 
 // FileChangedResult is the JSON response for FileChanged hooks (informational only).
@@ -410,8 +429,11 @@ type FileChangedResult struct {
 // Observational only.
 type StopFailureEvent struct {
 	EventBase
-	ErrorType    string `json:"error_type"`
-	ErrorMessage string `json:"error_message"`
+	// Error is the error type, e.g. rate_limit, authentication_failed, billing_error,
+	// invalid_request, model_not_found, server_error, max_output_tokens, unknown.
+	Error                string `json:"error"`
+	ErrorDetails         string `json:"error_details,omitempty"`
+	LastAssistantMessage string `json:"last_assistant_message,omitempty"`
 }
 
 // StopFailureResult is the JSON response for StopFailure hooks (informational only).
@@ -435,9 +457,9 @@ type UserPromptExpansionEvent struct {
 // UserPromptExpansionResult is the JSON response for UserPromptExpansion hooks.
 type UserPromptExpansionResult struct {
 	ResultBase
-	Decision string                       `json:"decision,omitempty"` // "block" to reject the expansion
-	Reason   string                       `json:"reason,omitempty"`
-	Details  *UserPromptExpansionDetails  `json:"hookSpecificOutput,omitempty"`
+	Decision string                      `json:"decision,omitempty"` // "block" to reject the expansion
+	Reason   string                      `json:"reason,omitempty"`
+	Details  *UserPromptExpansionDetails `json:"hookSpecificOutput,omitempty"`
 }
 
 // UserPromptExpansionDetails carries prompt-expansion-specific output.
@@ -451,9 +473,8 @@ type UserPromptExpansionDetails struct {
 // WorktreeCreateEvent is the payload for WorktreeCreate hooks (fired when a worktree is created).
 type WorktreeCreateEvent struct {
 	EventBase
-	WorktreePath  string `json:"worktree_path"`
-	Ref           string `json:"ref"`
-	IsolationType string `json:"isolation_type"`
+	// Name is the slug for the new worktree (user-specified or auto-generated).
+	Name string `json:"name"`
 }
 
 // WorktreeCreateResult is the JSON response for WorktreeCreate hooks.
@@ -488,8 +509,12 @@ type WorktreeRemoveResult struct {
 // (fired when an MCP server requests structured input from the user).
 type ElicitationEvent struct {
 	EventBase
-	ServerName string          `json:"server_name"`
-	FormFields json.RawMessage `json:"form_fields"`
+	ServerName      string          `json:"mcp_server_name"`
+	Message         string          `json:"message,omitempty"`
+	Mode            string          `json:"mode,omitempty"` // "form" or "url"
+	RequestedSchema json.RawMessage `json:"requested_schema,omitempty"`
+	URL             string          `json:"url,omitempty"` // present in url mode
+	ElicitationID   string          `json:"elicitation_id,omitempty"`
 }
 
 // ElicitationResult is the JSON response for Elicitation hooks.
@@ -511,8 +536,11 @@ type ElicitationDetails struct {
 // (fired after the user responds to an elicitation form).
 type ElicitationResultEvent struct {
 	EventBase
-	ServerName string          `json:"server_name"`
-	FormValues json.RawMessage `json:"form_values"`
+	ServerName    string          `json:"mcp_server_name"`
+	Action        string          `json:"action,omitempty"` // "accept", "decline", "cancel"
+	Content       json.RawMessage `json:"content,omitempty"`
+	Mode          string          `json:"mode,omitempty"`
+	ElicitationID string          `json:"elicitation_id,omitempty"`
 }
 
 // ElicitationResultResult is the JSON response for ElicitationResult hooks.

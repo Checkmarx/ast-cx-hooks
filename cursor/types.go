@@ -16,8 +16,8 @@ type EventBase struct {
 
 // PermissionResult is the standard output for hooks that gate an action.
 type PermissionResult struct {
-	Permission string `json:"permission"`            // "allow", "deny", or "ask"
-	UserNote   string `json:"user_message,omitempty"` // shown in client UI
+	Permission string `json:"permission"`              // "allow", "deny", or "ask"
+	UserNote   string `json:"user_message,omitempty"`  // shown in client UI
 	AgentNote  string `json:"agent_message,omitempty"` // sent to the agent
 }
 
@@ -28,7 +28,6 @@ type ShellPreEvent struct {
 	EventBase
 	Command string `json:"command"`
 	WorkDir string `json:"cwd"`
-	Timeout int    `json:"timeout"` // seconds
 	Sandbox bool   `json:"sandbox"` // command runs in a sandboxed environment
 }
 
@@ -52,10 +51,12 @@ type ShellPostResult struct{}
 // MCPPreEvent is the payload for beforeMCPExecution hooks.
 type MCPPreEvent struct {
 	EventBase
-	ToolName  string          `json:"tool_name"`
-	ToolInput json.RawMessage `json:"tool_input"`
-	ServerURL string          `json:"url,omitempty"`
-	Command   string          `json:"command,omitempty"` // for command-based MCP servers
+	ToolName string `json:"tool_name"`
+	// ToolInput is a JSON-encoded STRING of the tool params (per Cursor's
+	// beforeMCPExecution wire format), not a nested JSON object — matching MCPPostEvent.
+	ToolInput string `json:"tool_input"`
+	ServerURL string `json:"url,omitempty"`
+	Command   string `json:"command,omitempty"` // for command-based MCP servers
 }
 
 // MCPPreResult is the response type for beforeMCPExecution hooks.
@@ -167,13 +168,13 @@ type SessionEndResult struct{}
 // PreCompactEvent is the payload for preCompact hooks.
 type PreCompactEvent struct {
 	EventBase
-	Trigger            string `json:"trigger"` // "auto" or "manual"
-	ContextUsagePct    int    `json:"context_usage_percent"`
-	ContextTokens      int    `json:"context_tokens"`
-	ContextWindowSize  int    `json:"context_window_size"`
-	MessageCount       int    `json:"message_count"`
-	MessagesToCompact  int    `json:"messages_to_compact"`
-	IsFirstCompaction  bool   `json:"is_first_compaction"`
+	Trigger           string `json:"trigger"` // "auto" or "manual"
+	ContextUsagePct   int    `json:"context_usage_percent"`
+	ContextTokens     int    `json:"context_tokens"`
+	ContextWindowSize int    `json:"context_window_size"`
+	MessageCount      int    `json:"message_count"`
+	MessagesToCompact int    `json:"messages_to_compact"`
+	IsFirstCompaction bool   `json:"is_first_compaction"`
 }
 
 // PreCompactResult is the response type for preCompact hooks (observational only).
@@ -210,7 +211,7 @@ type ToolPostEvent struct {
 	EventBase
 	ToolName   string          `json:"tool_name"`
 	ToolInput  json.RawMessage `json:"tool_input"`
-	ToolOutput json.RawMessage `json:"tool_output"`
+	ToolOutput string          `json:"tool_output"` // JSON-stringified tool output
 	ToolUseID  string          `json:"tool_use_id"`
 	WorkDir    string          `json:"cwd"`
 	Duration   int64           `json:"duration"` // milliseconds

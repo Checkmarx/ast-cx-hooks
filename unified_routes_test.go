@@ -86,7 +86,10 @@ func TestNewUnifiedRoutes(t *testing.T) {
 				"session_id":"s-3","tool_name":"Bash","tool_input":{"command":"x"},
 				"error":"exit status 1","tool_use_id":"tu-3"
 			}`,
-			wantStdout: []string{`"decision":"block"`, `"reason":"retry with smaller input"`},
+			// Per the Claude Code docs, PostToolUseFailure cannot block — its only
+			// control surface is additionalContext. The unified Reject verdict therefore
+			// surfaces as injected context, not a decision:block.
+			wantStdout: []string{`"additionalContext":"retry with smaller input"`, `"hookEventName":"PostToolUseFailure"`},
 		},
 		{
 			name:  "windsurf-pre-read-code allow",

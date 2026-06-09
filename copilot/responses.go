@@ -37,6 +37,15 @@ func ApproveToolUseWithNote(note string) PreToolUseResult {
 	}
 }
 
+// ApproveToolUseWithContext allows the tool call and injects additionalContext for the agent.
+func ApproveToolUseWithContext(ctx string) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{
+			EventName: "PreToolUse", Decision: "allow", ExtraContext: ctx,
+		},
+	}
+}
+
 // ApproveToolUseWithInput allows the tool call but rewrites its input before execution.
 func ApproveToolUseWithInput(updated json.RawMessage) PreToolUseResult {
 	return PreToolUseResult{
@@ -49,6 +58,18 @@ func DenyToolUse(reason string) PreToolUseResult {
 	return PreToolUseResult{
 		Details: &ToolPermission{
 			EventName: "PreToolUse", Decision: "deny", DecisionReason: reason,
+		},
+	}
+}
+
+// DenyToolUseWithContext blocks the tool call, sends reason to the agent, and
+// injects additionalContext alongside the denial (e.g. an instruction to run a
+// remediation skill). Copilot's PreToolUse permission payload carries an
+// additionalContext field, so the context is delivered with the deny.
+func DenyToolUseWithContext(reason, ctx string) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{
+			EventName: "PreToolUse", Decision: "deny", DecisionReason: reason, ExtraContext: ctx,
 		},
 	}
 }
@@ -79,6 +100,19 @@ func AddToolContext(ctx string) PostToolUseResult {
 // RejectToolResult injects feedback into the agent after the tool completes.
 func RejectToolResult(reason string) PostToolUseResult {
 	return PostToolUseResult{Decision: "block", Reason: reason}
+}
+
+// RejectToolResultWithContext injects feedback into the agent after the tool
+// completes AND injects additionalContext alongside the block (e.g. an
+// instruction to run a remediation skill on the findings that caused the
+// reject). Copilot's PostToolUse payload carries additionalContext under
+// hookSpecificOutput, so both the block decision and the context are delivered.
+func RejectToolResultWithContext(reason, ctx string) PostToolUseResult {
+	return PostToolUseResult{
+		Decision: "block",
+		Reason:   reason,
+		Details:  &PostToolDetails{EventName: "PostToolUse", ExtraContext: ctx},
+	}
 }
 
 // --- UserPromptSubmit responses ---

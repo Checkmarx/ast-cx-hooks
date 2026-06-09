@@ -172,8 +172,15 @@ func TestAnnotateToolFailure(t *testing.T) {
 
 func TestRejectAfterFailure(t *testing.T) {
 	m := marshalMap(t, RejectAfterFailure("bad"))
-	if m["decision"] != "block" || m["reason"] != "bad" {
-		t.Errorf("got %v", m)
+	if _, hasDecision := m["decision"]; hasDecision {
+		t.Errorf("PostToolUseFailure cannot block; unexpected decision: %v", m)
+	}
+	out, ok := m["hookSpecificOutput"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("missing hookSpecificOutput: %v", m)
+	}
+	if out["hookEventName"] != "PostToolUseFailure" || out["additionalContext"] != "bad" {
+		t.Errorf("got %v", out)
 	}
 }
 

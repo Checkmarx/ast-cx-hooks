@@ -93,11 +93,11 @@ func TestPermissionDeniedBuilders(t *testing.T) {
 
 func TestConfigChangeEventUnmarshal(t *testing.T) {
 	var ev ConfigChangeEvent
-	payload := `{"hook_event_name":"ConfigChange","config_source":"project_settings","config_path":"/.claude/settings.json"}`
+	payload := `{"hook_event_name":"ConfigChange","source":"project_settings","file_path":"/.claude/settings.json"}`
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.ConfigSource != "project_settings" || ev.ConfigPath != "/.claude/settings.json" {
+	if ev.Source != "project_settings" || ev.FilePath != "/.claude/settings.json" {
 		t.Errorf("unexpected fields: %+v", ev)
 	}
 }
@@ -119,11 +119,11 @@ func TestConfigChangeBuilders(t *testing.T) {
 
 func TestCwdChangedEventUnmarshal(t *testing.T) {
 	var ev CwdChangedEvent
-	if err := json.Unmarshal([]byte(`{"hook_event_name":"CwdChanged","new_cwd":"/tmp/x"}`), &ev); err != nil {
+	if err := json.Unmarshal([]byte(`{"hook_event_name":"CwdChanged","old_cwd":"/tmp","new_cwd":"/tmp/x"}`), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.NewCwd != "/tmp/x" {
-		t.Errorf("NewCwd = %q", ev.NewCwd)
+	if ev.OldCwd != "/tmp" || ev.NewCwd != "/tmp/x" {
+		t.Errorf("cwd = %q -> %q", ev.OldCwd, ev.NewCwd)
 	}
 	if mustMarshal(t, AcknowledgeCwdChange()) != `{}` {
 		t.Errorf("AcknowledgeCwdChange should marshal to {}")
@@ -134,10 +134,10 @@ func TestCwdChangedEventUnmarshal(t *testing.T) {
 
 func TestFileChangedEventUnmarshal(t *testing.T) {
 	var ev FileChangedEvent
-	if err := json.Unmarshal([]byte(`{"hook_event_name":"FileChanged","file_path":"/a.go","change_type":"modified"}`), &ev); err != nil {
+	if err := json.Unmarshal([]byte(`{"hook_event_name":"FileChanged","file_path":"/a.go","event":"change"}`), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.FilePath != "/a.go" || ev.ChangeType != "modified" {
+	if ev.FilePath != "/a.go" || ev.Event != "change" {
 		t.Errorf("unexpected fields: %+v", ev)
 	}
 	if mustMarshal(t, AcknowledgeFileChange()) != `{}` {
@@ -149,10 +149,10 @@ func TestFileChangedEventUnmarshal(t *testing.T) {
 
 func TestStopFailureEventUnmarshal(t *testing.T) {
 	var ev StopFailureEvent
-	if err := json.Unmarshal([]byte(`{"hook_event_name":"StopFailure","error_type":"timeout","error_message":"boom"}`), &ev); err != nil {
+	if err := json.Unmarshal([]byte(`{"hook_event_name":"StopFailure","error":"rate_limit","error_details":"429","last_assistant_message":"API Error"}`), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.ErrorType != "timeout" || ev.ErrorMessage != "boom" {
+	if ev.Error != "rate_limit" || ev.ErrorDetails != "429" || ev.LastAssistantMessage != "API Error" {
 		t.Errorf("unexpected fields: %+v", ev)
 	}
 	if mustMarshal(t, AcknowledgeStopFailure()) != `{}` {
@@ -196,12 +196,12 @@ func TestUserPromptExpansionBuilders(t *testing.T) {
 
 func TestWorktreeCreateEventUnmarshal(t *testing.T) {
 	var ev WorktreeCreateEvent
-	payload := `{"hook_event_name":"WorktreeCreate","worktree_path":"/wt","ref":"main","isolation_type":"branch"}`
+	payload := `{"hook_event_name":"WorktreeCreate","name":"feature-auth"}`
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.WorktreePath != "/wt" || ev.Ref != "main" || ev.IsolationType != "branch" {
-		t.Errorf("unexpected fields: %+v", ev)
+	if ev.Name != "feature-auth" {
+		t.Errorf("Name = %q", ev.Name)
 	}
 }
 
@@ -235,15 +235,15 @@ func TestWorktreeRemoveEventUnmarshal(t *testing.T) {
 
 func TestElicitationEventUnmarshal(t *testing.T) {
 	var ev ElicitationEvent
-	payload := `{"hook_event_name":"Elicitation","server_name":"srv","form_fields":[{"name":"x"}]}`
+	payload := `{"hook_event_name":"Elicitation","mcp_server_name":"srv","mode":"form","message":"creds?","requested_schema":{"type":"object"}}`
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.ServerName != "srv" {
-		t.Errorf("ServerName = %q", ev.ServerName)
+	if ev.ServerName != "srv" || ev.Mode != "form" || ev.Message != "creds?" {
+		t.Errorf("unexpected fields: %+v", ev)
 	}
-	if string(ev.FormFields) != `[{"name":"x"}]` {
-		t.Errorf("FormFields = %s", ev.FormFields)
+	if string(ev.RequestedSchema) != `{"type":"object"}` {
+		t.Errorf("RequestedSchema = %s", ev.RequestedSchema)
 	}
 }
 
@@ -269,15 +269,15 @@ func TestElicitationBuilders(t *testing.T) {
 
 func TestElicitationResultEventUnmarshal(t *testing.T) {
 	var ev ElicitationResultEvent
-	payload := `{"hook_event_name":"ElicitationResult","server_name":"srv","form_values":{"x":"y"}}`
+	payload := `{"hook_event_name":"ElicitationResult","mcp_server_name":"srv","action":"accept","content":{"x":"y"}}`
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if ev.ServerName != "srv" {
-		t.Errorf("ServerName = %q", ev.ServerName)
+	if ev.ServerName != "srv" || ev.Action != "accept" {
+		t.Errorf("unexpected fields: %+v", ev)
 	}
-	if string(ev.FormValues) != `{"x":"y"}` {
-		t.Errorf("FormValues = %s", ev.FormValues)
+	if string(ev.Content) != `{"x":"y"}` {
+		t.Errorf("Content = %s", ev.Content)
 	}
 }
 

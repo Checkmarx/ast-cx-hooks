@@ -45,3 +45,13 @@ func RunE[I any, O any](handler func(I) (O, error)) {
 
 // Ptr returns a pointer to v. Useful for optional JSON fields modeled as *T.
 func Ptr[T any](v T) *T { return &v }
+
+// LogIgnoredVerdict emits a stderr breadcrumb when a fire-and-forget adapter
+// receives an actionable verdict it cannot deliver — the target platform exposes
+// no response channel for that hook (e.g. Windsurf post-hooks are exit-code-only,
+// Cursor afterFileEdit returns an empty result). It makes a silently-disabled gate
+// observable, matching the framework's fail-loud ethos, and gives every such
+// adapter one consistent way to report the drop instead of ad-hoc logging.
+func LogIgnoredVerdict(agent AgentID, hook, detail string) {
+	fmt.Fprintf(os.Stderr, "agenthooks: %s %s is fire-and-forget; %s ignored\n", agent, hook, detail)
+}

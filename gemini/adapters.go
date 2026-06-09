@@ -1,8 +1,6 @@
 package gemini
 
 import (
-	"encoding/json"
-
 	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
 )
 
@@ -26,56 +24,78 @@ func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	}
 }
 
+// beforeToolDecision maps a unified PreToolUse-style verdict to Gemini's
+// BeforeToolResult. Gemini's BeforeTool wire types carry only tool_input — no
+// additionalContext and no ask channel — so Context is dropped on both allow and
+// deny, and an ask collapses to a deny (fail closed). Used by both BeforeTool
+// gates: the tool-call gate (ToolAdapter) and the pre-file-write gate (FileEditAdapter).
+func beforeToolDecision(v hookcore.ToolVerdict) BeforeToolResult {
+	if !v.Permit {
+		// Covers deny AND ask (no ask channel on BeforeTool): both block. Context
+		// has no field here, so it cannot ride along on the deny.
+		return DenyToolCall(v.Message)
+	}
+	if v.RewrittenInput != nil {
+		return ApproveToolCallWithInput(v.RewrittenInput)
+	}
+	// Context unsupported on gemini BeforeTool allow (only tool_input rewrites).
+	return ApproveToolCall()
+}
+
 // ToolAdapter handles the unified pre-tool-call hook for Gemini (BeforeTool).
 func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "gemini-before-tool", func() {
 		hookcore.Run(func(ev BeforeToolEvent) BeforeToolResult {
-			kind := hookcore.GeminiToolKind(ev.ToolName)
-			var cmd string
-			if kind == hookcore.ToolKindShell {
-				// Gemini's shell tools (execute_bash / run_shell_command) carry the
-				// command under "command"; surface it so command-based gating works.
-				var c struct {
-					Command string `json:"command"`
-				}
-				json.Unmarshal(ev.ToolInput, &c) //nolint:errcheck // absent command is fine
-				cmd = c.Command
-			}
+			kind, cmd := hookcore.GeminiTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentGemini, Kind: kind, Command: cmd,
 				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
 			})
-			if !v.Permit {
-				return DenyToolCall(v.Message)
-			}
-			if v.RewrittenInput != nil {
-				return ApproveToolCallWithInput(v.RewrittenInput)
-			}
-			return ApproveToolCall()
+			return beforeToolDecision(v)
 		})
 	}
 }
 
-// FileWriteAdapter handles the unified post-file-write hook for Gemini (AfterTool write_file/replace_in_file).
+// FileEditAdapter handles the unified pre-file-write GATE for Gemini: BeforeTool
+// scoped to the file-writing tools (write_file/replace). Fires BEFORE the write and
+// can DENY it; non-write tools are approved untouched so the generic
+// gemini-before-tool gate owns them. Gemini reports no diffs, so the handler sees
+// the FilePath (and Raw tool_input) but an empty Changes slice.
+func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
+	return "gemini-before-file-tool", func() {
+		hookcore.Run(func(ev BeforeToolEvent) BeforeToolResult {
+			if !hookcore.GeminiTools.IsWrite(ev.ToolName) {
+				return ApproveToolCall()
+			}
+			v := fn(hookcore.FileEditEvent{
+				Agent: hookcore.AgentGemini, SessionID: ev.SessionID,
+				FilePath: hookcore.GeminiTools.FilePath(ev.ToolInput), Raw: &ev,
+			})
+			return beforeToolDecision(v)
+		})
+	}
+}
+
+// FileWriteAdapter handles the unified post-file-write hook for Gemini (AfterTool write_file/replace).
 func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 	return "gemini-after-file-tool", func() {
 		hookcore.Run(func(ev AfterToolEvent) AfterToolResult {
-			if !hookcore.IsGeminiWriteTool(ev.ToolName) {
+			if !hookcore.GeminiTools.IsWrite(ev.ToolName) {
 				return AcknowledgeToolCall()
-			}
-			var f struct {
-				FilePath string `json:"file_path"`
-				Path     string `json:"path"`
-			}
-			json.Unmarshal(ev.ToolInput, &f) //nolint:errcheck
-			filePath := f.FilePath
-			if filePath == "" {
-				filePath = f.Path
 			}
 			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentGemini, SessionID: ev.SessionID,
-				FilePath: filePath, WorkDir: ev.WorkDir, Raw: &ev,
+				FilePath: hookcore.GeminiTools.FilePath(ev.ToolInput), WorkDir: ev.WorkDir, Raw: &ev,
 			})
+			if v.Reject {
+				// AfterTool is deliverable on gemini: AfterToolResult carries the block
+				// (decision="deny" + reason) and AfterToolDetails.additionalContext, so a
+				// reject-with-context is honored here (not fire-and-forget).
+				if v.Context != "" {
+					return DenyToolResultWithContext(v.Feedback, v.Context)
+				}
+				return DenyToolResult(v.Feedback)
+			}
 			if v.Footnote != "" {
 				return AddToolAnnotation(v.Footnote)
 			}

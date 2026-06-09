@@ -1,7 +1,9 @@
 // Package agenthooks provides a framework for building hooks for AI coding agents.
 //
-// It supports Claude Code, Cursor, Windsurf Cascade, Factory Droid, and Gemini CLI
-// through a single unified API plus platform-specific packages for advanced use.
+// It supports Claude Code, Cursor, Windsurf Cascade, Factory Droid, Gemini CLI, and
+// VS Code Copilot (Preview) through a single unified API plus platform-specific
+// packages for advanced use. (Copilot hooks are project-scoped, so `agenthooks
+// install` configures the other five; see the README for Copilot setup.)
 //
 // Quick start with unified handlers (one handler works across all agents):
 //
@@ -75,9 +77,10 @@ func Process[I any, O any](handler func(I) O) { hookcore.Run(handler) }
 // and block the pending action.
 func ProcessE[I any, O any](handler func(I) (O, error)) { hookcore.RunE(handler) }
 
-// ClearRoutes removes all registered handlers. Intended for use in tests.
+// ClearRoutes removes all registered handlers and scenario state. Intended for use in tests.
 func ClearRoutes() {
 	routes = map[string]RouteFunc{}
+	resetScenarios()
 }
 
 // RouteNames returns the names of all currently registered routes, unsorted.

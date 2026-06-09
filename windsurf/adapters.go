@@ -3,7 +3,6 @@ package windsurf
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
 )
@@ -22,7 +21,7 @@ func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 				Agent: hookcore.AgentWindsurf, SessionID: ev.TrajectoryID, Raw: &ev,
 			})
 			if !v.Proceed {
-				fmt.Fprintf(os.Stderr, "agenthooks: windsurf post-cascade-response is fire-and-forget; Interrupt(%q) ignored\n", v.Feedback)
+				hookcore.LogIgnoredVerdict(hookcore.AgentWindsurf, "post-cascade-response", fmt.Sprintf("Interrupt(%q)", v.Feedback))
 			}
 			return AcknowledgeResponse()
 		})
@@ -39,8 +38,10 @@ func RunCommandAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 				Command: ev.ToolInfo.CommandLine, WorkDir: ev.ToolInfo.WorkDir, Raw: &ev,
 			})
 			if !v.Permit {
+				// Context unsupported on windsurf PreToolUse deny (exit-code-only platform; v.Context ignored).
 				return PreRunCommandResult{}, errors.New(v.Message)
 			}
+			// v.Context (allow) unsupported on windsurf (exit-code-only platform; ignored).
 			return AllowCommand(), nil
 		})
 	}
@@ -57,9 +58,34 @@ func MCPToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 				ServerURL: ev.ToolInfo.ServerName, Raw: &ev,
 			})
 			if !v.Permit {
+				// Context unsupported on windsurf PreToolUse deny (exit-code-only platform; v.Context ignored).
 				return PreMCPToolUseResult{}, errors.New(v.Message)
 			}
+			// v.Context (allow) unsupported on windsurf (exit-code-only platform; ignored).
 			return AllowMCPTool(), nil
+		})
+	}
+}
+
+// FileEditAdapter handles the unified pre-file-write GATE for Windsurf
+// (pre_write_code). Fires BEFORE Cascade writes/edits a file and BLOCKS via exit
+// code 2 when the verdict denies. Context/ask are unsupported on this exit-code-only
+// gate, so a deny carries only its reason (surfaced on stderr).
+func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
+	return "windsurf-pre-write-code", func() {
+		hookcore.RunE(func(ev PreWriteCodeEvent) (PreWriteCodeResult, error) {
+			changes := make([]hookcore.FileDiff, len(ev.ToolInfo.Edits))
+			for i, e := range ev.ToolInfo.Edits {
+				changes[i] = hookcore.FileDiff{Before: e.OldText, After: e.NewText}
+			}
+			v := fn(hookcore.FileEditEvent{
+				Agent: hookcore.AgentWindsurf, SessionID: ev.TrajectoryID,
+				FilePath: ev.ToolInfo.FilePath, Changes: changes, Raw: &ev,
+			})
+			if !v.Permit {
+				return PreWriteCodeResult{}, errors.New(v.Message)
+			}
+			return AllowWrite(), nil
 		})
 	}
 }
@@ -73,10 +99,15 @@ func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 			for i, e := range ev.ToolInfo.Edits {
 				changes[i] = hookcore.FileDiff{Before: e.OldText, After: e.NewText}
 			}
-			fn(hookcore.FileWriteEvent{
+			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentWindsurf, SessionID: ev.TrajectoryID,
 				FilePath: ev.ToolInfo.FilePath, Changes: changes, Raw: &ev,
 			})
+			// post_write_code is fire-and-forget on windsurf (exit-code-only platform):
+			// an actionable verdict cannot be delivered, so report the drop and move on.
+			if v.Reject || v.Footnote != "" || v.Context != "" {
+				hookcore.LogIgnoredVerdict(hookcore.AgentWindsurf, "post-write-code", "Reject/Footnote/Context")
+			}
 			return PostWriteCodeResult{}
 		})
 	}

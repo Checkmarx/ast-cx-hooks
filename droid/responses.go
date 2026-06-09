@@ -71,6 +71,17 @@ func RejectToolResult(reason string) PostToolUseResult {
 	return PostToolUseResult{Decision: "block", Reason: reason}
 }
 
+// RejectToolResultWithContext injects feedback into Droid after the tool completes
+// AND attaches additionalContext (e.g. an instruction to run a remediation skill on
+// the findings that caused the reject) via the PostToolUse hookSpecificOutput.
+func RejectToolResultWithContext(reason, ctx string) PostToolUseResult {
+	return PostToolUseResult{
+		Decision: "block",
+		Reason:   reason,
+		Details:  &PostToolDetails{EventName: "PostToolUse", ExtraContext: ctx},
+	}
+}
+
 // --- UserPromptSubmit responses ---
 
 // ApprovePrompt allows the prompt to proceed.

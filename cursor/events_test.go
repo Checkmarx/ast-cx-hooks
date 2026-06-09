@@ -36,7 +36,7 @@ func TestUnmarshalToolPostEvent(t *testing.T) {
 		"hook_event_name": "postToolUse",
 		"tool_name": "read_file",
 		"tool_input": {"path": "a.txt"},
-		"tool_output": {"content": "hi"},
+		"tool_output": "{\"content\": \"hi\"}",
 		"tool_use_id": "tu_9",
 		"cwd": "/repo",
 		"duration": 42,
@@ -201,8 +201,8 @@ func marshalToString(t *testing.T, v interface{}) string {
 
 func TestMarshalResultBuilders(t *testing.T) {
 	tests := []struct {
-		name    string
-		value   interface{}
+		name     string
+		value    interface{}
 		mustHave []string
 	}{
 		{"PermitTool", PermitTool(), []string{`"permission":"allow"`}},

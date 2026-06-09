@@ -23,6 +23,10 @@ type (
 	FileWriteVerdict = hookcore.FileWriteVerdict
 	FileWriteFunc    = hookcore.FileWriteFunc
 
+	FileEditEvent   = hookcore.FileEditEvent
+	FileEditVerdict = hookcore.FileEditVerdict
+	FileEditFunc    = hookcore.FileEditFunc
+
 	PromptEvent   = hookcore.PromptEvent
 	PromptVerdict = hookcore.PromptVerdict
 	PromptFunc    = hookcore.PromptFunc
@@ -34,15 +38,19 @@ type (
 	FileReadEvent   = hookcore.FileReadEvent
 	FileReadVerdict = hookcore.FileReadVerdict
 	FileReadFunc    = hookcore.FileReadFunc
+
+	ScenarioMeta     = hookcore.ScenarioMeta
+	ScenarioSelector = hookcore.ScenarioSelector
 )
 
 const (
-	AgentClaude   = hookcore.AgentClaude
-	AgentCursor   = hookcore.AgentCursor
-	AgentWindsurf = hookcore.AgentWindsurf
-	AgentDroid    = hookcore.AgentDroid
-	AgentGemini   = hookcore.AgentGemini
-	AgentCopilot  = hookcore.AgentCopilot
+	AgentClaude     = hookcore.AgentClaude
+	AgentCursor     = hookcore.AgentCursor
+	AgentWindsurf   = hookcore.AgentWindsurf
+	AgentDroid      = hookcore.AgentDroid
+	AgentGemini     = hookcore.AgentGemini
+	AgentCopilot    = hookcore.AgentCopilot
+	AgentCopilotCLI = hookcore.AgentCopilotCLI
 
 	ToolKindShell   = hookcore.ToolKindShell
 	ToolKindMCP     = hookcore.ToolKindMCP
@@ -54,15 +62,24 @@ var (
 	Resume    = hookcore.Resume
 	Interrupt = hookcore.Interrupt
 
-	Allow          = hookcore.Allow
-	AllowWithNote  = hookcore.AllowWithNote
-	Deny           = hookcore.Deny
-	AskUser        = hookcore.AskUser
-	AllowWithInput = hookcore.AllowWithInput
+	Allow            = hookcore.Allow
+	AllowWithNote    = hookcore.AllowWithNote
+	Deny             = hookcore.Deny
+	AskUser          = hookcore.AskUser
+	AllowWithInput   = hookcore.AllowWithInput
+	AllowWithContext = hookcore.AllowWithContext
+	DenyWithContext  = hookcore.DenyWithContext
 
-	AcceptWrite   = hookcore.AcceptWrite
-	RejectWrite   = hookcore.RejectWrite
-	AnnotateWrite = hookcore.AnnotateWrite
+	AcceptWrite            = hookcore.AcceptWrite
+	RejectWrite            = hookcore.RejectWrite
+	RejectWriteWithContext = hookcore.RejectWriteWithContext
+	AnnotateWrite          = hookcore.AnnotateWrite
+
+	AcceptEdit            = hookcore.AcceptEdit
+	AcceptEditWithInput   = hookcore.AcceptEditWithInput
+	RejectEdit            = hookcore.RejectEdit
+	RejectEditWithContext = hookcore.RejectEditWithContext
+	AskBeforeEdit         = hookcore.AskBeforeEdit
 
 	AcceptPrompt = hookcore.AcceptPrompt
 	RejectPrompt = hookcore.RejectPrompt
@@ -74,4 +91,8 @@ var (
 
 	AllowRead = hookcore.AllowRead
 	DenyRead  = hookcore.DenyRead
+
+	// Built-in scenario selectors.
+	ScenarioFromArg = hookcore.ScenarioFromArg
+	ScenarioFromEnv = hookcore.ScenarioFromEnv
 )

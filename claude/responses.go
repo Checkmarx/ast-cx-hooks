@@ -62,6 +62,17 @@ func DenyToolUse(reason string) PreToolUseResult {
 	}
 }
 
+// DenyToolUseWithContext blocks the tool call, sends reason to the agent, and
+// injects additionalContext alongside the denial (e.g. an instruction to run a
+// remediation skill).
+func DenyToolUseWithContext(reason, ctx string) PreToolUseResult {
+	return PreToolUseResult{
+		Details: &ToolPermission{
+			EventName: "PreToolUse", Decision: "deny", DecisionReason: reason, ExtraContext: ctx,
+		},
+	}
+}
+
 // DeferToolUse defers the permission decision to the next handler or the default flow.
 func DeferToolUse(reason string) PreToolUseResult {
 	return PreToolUseResult{
@@ -97,6 +108,19 @@ func AddToolContext(ctx string) PostToolUseResult {
 // RejectToolResult injects feedback into the agent after the tool completes.
 func RejectToolResult(reason string) PostToolUseResult {
 	return PostToolUseResult{Decision: "block", Reason: reason}
+}
+
+// RejectToolResultWithContext injects blocking feedback into the agent after the
+// tool completes AND appends additionalContext (e.g. an instruction to run a
+// remediation skill on the findings that caused the reject). The top-level
+// decision/reason carries the block; hookSpecificOutput.additionalContext carries
+// the context.
+func RejectToolResultWithContext(reason, ctx string) PostToolUseResult {
+	return PostToolUseResult{
+		Decision: "block",
+		Reason:   reason,
+		Details:  &PostToolDetails{EventName: "PostToolUse", ExtraContext: ctx},
+	}
 }
 
 // ReplaceToolOutput replaces the tool's result before the agent sees it.
@@ -233,9 +257,12 @@ func AnnotateToolFailure(ctx string) PostToolUseFailureResult {
 	}
 }
 
-// RejectAfterFailure injects blocking feedback into the agent after a tool failure.
+// RejectAfterFailure surfaces feedback to the agent after a tool failure.
+// PostToolUseFailure cannot block, so the reason is delivered as additionalContext.
 func RejectAfterFailure(reason string) PostToolUseFailureResult {
-	return PostToolUseFailureResult{Decision: "block", Reason: reason}
+	return PostToolUseFailureResult{
+		Details: &PostToolUseFailureDetails{EventName: "PostToolUseFailure", ExtraContext: reason},
+	}
 }
 
 // --- PermissionRequest responses ---

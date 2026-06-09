@@ -1,10 +1,6 @@
 package droid
 
-import (
-	"errors"
-
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
-)
+import "github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
 
 // This file owns the translation between Factory Droid's wire types and the
 // unified hookcore vocabulary. The root agenthooks package wires these adapters
@@ -42,26 +38,54 @@ func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	}
 }
 
+// preToolDecision maps a unified PreToolUse-style verdict to Droid's
+// PreToolUseResult. Droid's PreToolUse output has no additionalContext or note
+// channel, so a unified Context collapses (deny → plain deny, allow-with-context →
+// plain allow) — unlike Droid's PostToolUse, which does carry additionalContext.
+// It is the single seam both Droid PreToolUse gates use (ToolAdapter, FileEditAdapter).
+func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
+	switch v.Path() {
+	case hookcore.PathAllowWithInput:
+		return ApproveToolUseWithInput(v.RewrittenInput)
+	case hookcore.PathAsk:
+		return AskUserAboutTool(v.Message)
+	case hookcore.PathDeny, hookcore.PathDenyWithContext:
+		return DenyToolUse(v.Message)
+	default: // PathAllow / PathAllowWithContext / PathAllowWithNote
+		return ApproveToolUse()
+	}
+}
+
 // ToolAdapter handles the unified pre-tool-call hook for Droid.
 func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "droid-pre-tool-use", func() {
-		hookcore.RunE(func(ev PreToolUseEvent) (PreToolUseResult, error) {
-			kind, cmd := hookcore.StandardToolKind(ev.ToolName, ev.ToolInput)
+		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+			kind, cmd := hookcore.DroidTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentDroid, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
 				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
 			})
-			if !v.Permit {
-				// "Ask" is a JSON decision, not a hard block — emit it without exit 2.
-				if v.NeedsConfirm {
-					return AskUserAboutTool(v.Message), nil
-				}
-				return PreToolUseResult{}, errors.New(v.Message)
+			return preToolDecision(v)
+		})
+	}
+}
+
+// FileEditAdapter handles the unified pre-file-write GATE for Droid: PreToolUse
+// scoped to the file-writing tools. Fires BEFORE the write and can DENY it; non-write
+// tools are approved untouched so the generic droid-pre-tool-use gate owns them.
+func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
+	return "droid-pre-file-write", func() {
+		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+			if !hookcore.DroidTools.IsWrite(ev.ToolName) {
+				return ApproveToolUse()
 			}
-			if v.RewrittenInput != nil {
-				return ApproveToolUseWithInput(v.RewrittenInput), nil
-			}
-			return ApproveToolUse(), nil
+			v := fn(hookcore.FileEditEvent{
+				Agent: hookcore.AgentDroid, SessionID: ev.SessionID,
+				FilePath: hookcore.DroidTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.DroidTools.Changes(ev.ToolName, ev.ToolInput),
+				WorkDir:  ev.WorkDir, Raw: &ev,
+			})
+			return preToolDecision(v)
 		})
 	}
 }
@@ -70,16 +94,21 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 	return "droid-after-file-write", func() {
 		hookcore.Run(func(ev PostToolUseEvent) PostToolUseResult {
-			if !hookcore.IsStandardWriteTool(ev.ToolName) {
+			if !hookcore.DroidTools.IsWrite(ev.ToolName) {
 				return AcknowledgeToolUse()
 			}
 			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentDroid, SessionID: ev.SessionID,
-				FilePath: hookcore.StandardFilePath(ev.ToolInput),
-				Changes:  hookcore.StandardWriteChanges(ev.ToolName, ev.ToolInput),
+				FilePath: hookcore.DroidTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.DroidTools.Changes(ev.ToolName, ev.ToolInput),
 				WorkDir:  ev.WorkDir, Raw: &ev,
 			})
 			if v.Reject {
+				// Droid PostToolDetails carries additionalContext, so a reject can also
+				// attach context (e.g. a remediation instruction) alongside the block.
+				if v.Context != "" {
+					return RejectToolResultWithContext(v.Feedback, v.Context)
+				}
 				return RejectToolResult(v.Feedback)
 			}
 			if v.Footnote != "" {

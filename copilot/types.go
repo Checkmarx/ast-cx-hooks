@@ -52,7 +52,7 @@ type StopDetails struct {
 // SessionStartEvent is the payload for SessionStart hooks.
 type SessionStartEvent struct {
 	EventBase
-	Trigger string `json:"source"` // "startup", "resume", etc.
+	Trigger string `json:"source"` // documented value: "new"
 }
 
 // SessionStartResult is the JSON response for SessionStart hooks.
@@ -104,11 +104,11 @@ type PreToolUseResult struct {
 //
 // Decision priority (most restrictive wins): deny > ask > allow.
 type ToolPermission struct {
-	EventName      string         `json:"hookEventName,omitempty"`
-	Decision       string         `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask"
-	DecisionReason string         `json:"permissionDecisionReason,omitempty"` // shown to agent when denied
+	EventName      string          `json:"hookEventName,omitempty"`
+	Decision       string          `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask"
+	DecisionReason string          `json:"permissionDecisionReason,omitempty"` // shown to agent when denied
 	RewrittenInput json.RawMessage `json:"updatedInput,omitempty"`             // optional input override
-	ExtraContext   string         `json:"additionalContext,omitempty"`
+	ExtraContext   string          `json:"additionalContext,omitempty"`
 }
 
 // --- PostToolUse ---
@@ -141,7 +141,7 @@ type PostToolDetails struct {
 // PreCompactEvent is the payload for PreCompact hooks (before context compaction).
 type PreCompactEvent struct {
 	EventBase
-	Trigger string `json:"trigger"` // "manual" or "auto"
+	Trigger string `json:"trigger"` // documented value: "auto"
 }
 
 // PreCompactResult is the JSON response for PreCompact hooks (informational).

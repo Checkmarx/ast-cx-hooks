@@ -14,11 +14,11 @@ import (
 // produces the expected JSON on stdout. This is the demo-grade smoke test.
 func TestCopilotRoutesEndToEnd(t *testing.T) {
 	cases := []struct {
-		name        string
-		route       string
-		register    func()
-		stdin       string
-		wantStdout  []string // substrings that must appear in stdout
+		name       string
+		route      string
+		register   func()
+		stdin      string
+		wantStdout []string // substrings that must appear in stdout
 	}{
 		{
 			name:  "copilot-pre-tool-use deny",
@@ -40,7 +40,7 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 				"sessionId":"s-1",
 				"hookEventName":"PreToolUse",
 				"transcript_path":"/tmp/t.jsonl",
-				"tool_name":"Bash",
+				"tool_name":"runTerminalCommand",
 				"tool_input":{"command":"rm -rf /"},
 				"tool_use_id":"tu-1"
 			}`,
@@ -57,7 +57,7 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 			stdin: `{
 				"sessionId":"s-7",
 				"hookEventName":"PreToolUse",
-				"tool_name":"Bash",
+				"tool_name":"runTerminalCommand",
 				"tool_input":{"command":"ls"},
 				"tool_use_id":"tu-7"
 			}`,
@@ -143,8 +143,8 @@ func TestCopilotRoutesEndToEnd(t *testing.T) {
 			stdin: `{
 				"sessionId":"s-5",
 				"hookEventName":"PostToolUse",
-				"tool_name":"Write",
-				"tool_input":{"file_path":"/repo/main.go","content":"package main"},
+				"tool_name":"createFile",
+				"tool_input":{"filePath":"/repo/main.go","content":"package main"},
 				"tool_response":{},
 				"tool_use_id":"tu-5"
 			}`,

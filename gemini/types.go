@@ -13,12 +13,12 @@ type EventBase struct {
 
 // ResultBase contains fields accepted by most Gemini CLI hook responses.
 type ResultBase struct {
-	Decision   string `json:"decision,omitempty"`   // "deny" to block
+	Decision   string `json:"decision,omitempty"` // "deny" to block
 	Reason     string `json:"reason,omitempty"`
 	Proceed    *bool  `json:"continue,omitempty"`
 	HaltReason string `json:"stopReason,omitempty"`
 	MuteOutput bool   `json:"suppressOutput,omitempty"`
-	SystemNote string  `json:"systemMessage,omitempty"`
+	SystemNote string `json:"systemMessage,omitempty"`
 }
 
 // --- BeforeTool ---
@@ -32,10 +32,10 @@ type MCPContext struct {
 // BeforeToolEvent fires before a tool executes. Exit code 2 blocks it.
 type BeforeToolEvent struct {
 	EventBase
-	ToolName    string          `json:"tool_name"`
-	ToolInput   json.RawMessage `json:"tool_input"`
-	MCPContext  *MCPContext     `json:"mcp_context,omitempty"`
-	OriginalName string         `json:"original_request_name,omitempty"`
+	ToolName     string          `json:"tool_name"`
+	ToolInput    json.RawMessage `json:"tool_input"`
+	MCPContext   *MCPContext     `json:"mcp_context,omitempty"`
+	OriginalName string          `json:"original_request_name,omitempty"`
 }
 
 // BeforeToolResult is the JSON response for BeforeTool hooks.
@@ -46,6 +46,8 @@ type BeforeToolResult struct {
 
 // BeforeToolDetails carries BeforeTool-specific output fields.
 type BeforeToolDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// RewrittenInput merges with the model's tool arguments when set.
 	RewrittenInput json.RawMessage `json:"tool_input,omitempty"`
 }
@@ -77,6 +79,8 @@ type AfterToolResult struct {
 
 // AfterToolDetails carries AfterTool-specific output fields.
 type AfterToolDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// ExtraContext is appended to the tool result seen by the model.
 	ExtraContext string `json:"additionalContext,omitempty"`
 	// TailToolCall requests immediate execution of another tool whose result
@@ -107,6 +111,8 @@ type BeforeAgentResult struct {
 
 // BeforeAgentDetails carries BeforeAgent-specific output fields.
 type BeforeAgentDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// ExtraContext is appended to the agent's prompt.
 	ExtraContext string `json:"additionalContext,omitempty"`
 }
@@ -130,6 +136,8 @@ type AfterAgentResult struct {
 
 // AfterAgentDetails carries AfterAgent-specific output fields.
 type AfterAgentDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// ClearContext clears the model's conversation memory when true.
 	ClearContext bool `json:"clearContext,omitempty"`
 }
@@ -151,6 +159,8 @@ type LLMRequest struct {
 }
 
 // LLMCandidate is one candidate completion in an LLM response.
+// In the hook-facing wire format (per gemini-cli hookTranslator.ts and the hooks
+// reference), content.parts is a plain string array, not an array of objects.
 type LLMCandidate struct {
 	Content struct {
 		Role  string   `json:"role"`
@@ -188,6 +198,8 @@ type BeforeModelResult struct {
 
 // BeforeModelDetails carries BeforeModel-specific output fields.
 type BeforeModelDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// OverrideRequest replaces the outgoing LLM request when set.
 	OverrideRequest *LLMRequest `json:"llm_request,omitempty"`
 	// SyntheticResponse provides a mock LLM response, skipping the actual LLM call.
@@ -211,6 +223,8 @@ type AfterModelResult struct {
 
 // AfterModelDetails carries AfterModel-specific output fields.
 type AfterModelDetails struct {
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
 	// OverrideResponse replaces the received chunk when set.
 	OverrideResponse *LLMResponse `json:"llm_response,omitempty"`
 }
@@ -219,7 +233,7 @@ type AfterModelDetails struct {
 
 // ToolConfig controls which tools the model may call.
 type ToolConfig struct {
-	Mode                string   `json:"mode,omitempty"`                 // "AUTO", "ANY", "NONE"
+	Mode                 string   `json:"mode,omitempty"`                 // "AUTO", "ANY", "NONE"
 	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"` // restrict to named tools
 }
 
@@ -237,7 +251,9 @@ type BeforeToolSelectionResult struct {
 
 // ToolSelectionDetails carries BeforeToolSelection-specific output.
 type ToolSelectionDetails struct {
-	ToolConfig *ToolConfig `json:"toolConfig,omitempty"`
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string      `json:"hookEventName,omitempty"`
+	ToolConfig    *ToolConfig `json:"toolConfig,omitempty"`
 }
 
 // --- SessionStart ---
@@ -250,13 +266,15 @@ type SessionStartEvent struct {
 
 // SessionStartResult is the JSON response for SessionStart hooks.
 type SessionStartResult struct {
-	SystemNote string              `json:"systemMessage,omitempty"`
+	SystemNote string               `json:"systemMessage,omitempty"`
 	Details    *SessionStartDetails `json:"hookSpecificOutput,omitempty"`
 }
 
 // SessionStartDetails carries session-start-specific output.
 type SessionStartDetails struct {
-	ExtraContext string `json:"additionalContext,omitempty"`
+	// HookEventName discriminates the hookSpecificOutput payload.
+	HookEventName string `json:"hookEventName,omitempty"`
+	ExtraContext  string `json:"additionalContext,omitempty"`
 }
 
 // --- SessionEnd ---

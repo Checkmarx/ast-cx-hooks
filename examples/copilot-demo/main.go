@@ -20,6 +20,10 @@ import (
 )
 
 func main() {
+	// NOTE: the banned-command and secret substring matching below is for DEMO
+	// purposes only. Substring blocklists are trivially bypassed (whitespace,
+	// encoding, indirection) and are not production security — real controls
+	// should use allowlists, command parsing, and input normalization.
 	agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
 		if e.IsShell() {
 			banned := []string{"rm -rf", "DROP TABLE", "format c:", "shutdown"}

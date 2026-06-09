@@ -5,10 +5,10 @@
 ### One hook codebase. Every AI coding agent.
 
 Write a single handler, compile one binary, and it runs across
-**Claude Code · Cursor · Windsurf Cascade · Factory Droid · Gemini CLI · GitHub Copilot (VS Code, Preview)**.
+**Claude Code · Cursor · Windsurf Cascade · Factory Droid · Gemini CLI · GitHub Copilot (VS Code) · GitHub Copilot CLI**.
 
-[![Go](https://img.shields.io/badge/Go-1.21%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
-[![Agents](https://img.shields.io/badge/agents-6-4F46E5)](#-supported-agents)
+[![Go](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Agents](https://img.shields.io/badge/agents-7-4F46E5)](#-supported-agents)
 [![Unified hooks](https://img.shields.io/badge/unified%20hooks-7-7C3AED)](#-unified-hooks)
 [![Dependencies](https://img.shields.io/badge/dependencies-zero-22C55E)](go.mod)
 [![Go Reference](https://pkg.go.dev/badge/github.com/CheckmarxDev/ast-cx-hooks.svg)](https://pkg.go.dev/github.com/CheckmarxDev/ast-cx-hooks)
@@ -36,7 +36,7 @@ func main() {
 }
 ```
 
-> That one handler now gates shell commands in **all six** agents — no per-platform code.
+> That one handler now gates shell commands in **all seven** agents — no per-platform code.
 
 ---
 
@@ -47,6 +47,7 @@ func main() {
 - [🤖 Supported agents](#-supported-agents)
 - [🧩 Unified hooks](#-unified-hooks)
 - [🗺️ Support matrix](#️-support-matrix)
+- [👥 Multiple implementations per hook](#-multiple-implementations-per-hook-scenarios)
 - [🛠️ CLI: scaffold, build, install](#️-cli-scaffold-build-install)
 - [🧱 Platform-specific hooks](#-platform-specific-hooks)
 - [🧪 Testing](#-testing)
@@ -65,9 +66,9 @@ into **one** surface:
 
 | | Without cxagenthooks | With cxagenthooks |
 |---|---|---|
-| **Handlers** | 6 separate implementations | 1 unified handler |
-| **JSON schemas** | Learn 6 different formats | Learn 1 event struct |
-| **Config files** | Hand-maintain 6 configs | `agenthooks install` writes them |
+| **Handlers** | 7 separate implementations | 1 unified handler |
+| **JSON schemas** | Learn 7 different formats | Learn 1 event struct |
+| **Config files** | Hand-maintain 7 configs | `agenthooks install` writes them |
 | **Binaries** | Build per platform manually | `agenthooks build` cross-compiles |
 | **Dependencies** | — | **Zero** (stdlib only) |
 
@@ -83,14 +84,19 @@ go get github.com/CheckmarxDev/ast-cx-hooks
 
 ## 🤖 Supported agents
 
-| Agent | Config location | Blocking style |
+| Agent | Config location | Output style |
 |---|---|---|
-| **Claude Code** | `~/.claude/settings.json` | JSON decision |
-| **Cursor** | `~/.cursor/hooks.json` | JSON decision |
-| **Windsurf Cascade** | `~/.codeium/windsurf/hooks.json` | exit code `2` |
-| **Factory Droid** | `~/.factory/settings.json` | JSON decision / exit `2` |
+| **Claude Code** | `~/.claude/settings.json` | nested JSON decision |
+| **Cursor** | `~/.cursor/hooks.json` | flat JSON decision |
+| **Windsurf Cascade** | `~/.codeium/windsurf/hooks.json` | exit code `2` only |
+| **Factory Droid** | `~/.factory/settings.json` | nested JSON / exit `2` |
 | **Gemini CLI** | `~/.gemini/settings.json` | JSON decision / exit `2` |
-| **GitHub Copilot (VS Code)** _(Preview)_ | `.github/hooks/*.json` or `~/.copilot/hooks` | JSON decision |
+| **GitHub Copilot (VS Code)** _(Preview)_ | `.github/hooks/*.json` (project) | nested JSON decision |
+| **GitHub Copilot CLI** | `~/.copilot/hooks/agenthooks.json` | **flat** JSON / exit `2` |
+
+> The VS Code Copilot extension and the GitHub Copilot **CLI** are different products with
+> incompatible hook schemas (nested vs. flat output, `updatedInput` vs. `modifiedArgs`,
+> `runTerminalCommand` vs. `bash`), so they are separate packages — `copilot` and `copilotcli`.
 
 ---
 
@@ -207,17 +213,53 @@ agenthooks.BeforeFileRead(func(e agenthooks.FileReadEvent) agenthooks.FileReadVe
 
 Which unified hooks each agent supports today:
 
-| Unified hook | Claude | Cursor | Windsurf | Droid | Gemini | Copilot |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `WhenAgentIdle` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ |
-| `BeforeToolCall` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `AfterFileWrite` | ✅ | ✅ ¹ | ✅ ¹ | ✅ | ✅ | ✅ |
-| `BeforePrompt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `WhenSubagentIdle` | ✅ | ✅ | — | ✅ | — | ✅ |
-| `AfterToolFailure` | ✅ | ✅ ² | — | — | — | — |
-| `BeforeFileRead` | — | ✅ | ✅ | — | — | — |
+| Unified hook | Claude | Cursor | Windsurf | Droid | Gemini | Copilot | Copilot CLI |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `WhenAgentIdle` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
+| `BeforeToolCall` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `AfterFileWrite` | ✅ | ✅ ¹ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
+| `BeforePrompt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ ³ |
+| `WhenSubagentIdle` | ✅ | ✅ | — | ✅ | — | ✅ | ✅ |
+| `AfterToolFailure` | ✅ | ✅ ² | — | — | — | — | ✅ |
+| `BeforeFileRead` | — | ✅ | ✅ | — | — | — | — |
 
-<sub>¹ fire-and-forget — feedback is logged, not enforced by the agent.  ² observational on Cursor — the verdict is ignored.</sub>
+<sub>¹ fire-and-forget — feedback is logged, not enforced by the agent.  ² observational on Cursor — the verdict is ignored.  ³ observational on Copilot CLI — `userPromptSubmitted` output is not processed, so a reject is logged, not enforced.</sub>
+
+---
+
+## 👥 Multiple implementations per hook (scenarios)
+
+Several teams — or scenarios — can share **one** hook. Register the **default** with
+`BeforeToolCall(fn)` and any number of **named scenarios** with `BeforeToolCallScenario(name, fn)`.
+The caller passes a **scenario key**; the framework runs the matching handler (or the default).
+
+```go
+func main() {
+    // Team Phoenix and Team Cypher each own their own pre-tool-call logic:
+    agenthooks.BeforeToolCallScenario("phoenix", phoenix.Handle)
+    agenthooks.BeforeToolCallScenario("cypher",  cypher.Handle)
+
+    // Optional default — runs when no scenario key is supplied or matched:
+    agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+        return agenthooks.Allow()
+    })
+
+    agenthooks.Dispatch()
+}
+```
+
+**How the caller supplies the key** (default selector = `ScenarioFromArg`):
+
+| Channel | How |
+|---|---|
+| **CLI arg** | `myhook claude-pre-tool-use phoenix` |
+| **Env var** | `AGENTHOOKS_SCENARIO=phoenix myhook claude-pre-tool-use` |
+| **Event content** | `agenthooks.UseScenarioSelector(func(m agenthooks.ScenarioMeta) string { if strings.Contains(m.WorkDir, "phoenix") { return "phoenix" }; return "" })` |
+
+Resolution order: a matching named scenario → the registered default → a permissive fallback verdict.
+Every unified hook has a `…Scenario` variant — `WhenAgentIdleScenario`, `WhenSubagentIdleScenario`,
+`BeforeToolCallScenario`, `AfterToolFailureScenario`, `AfterFileWriteScenario`, `BeforeFileReadScenario`,
+`BeforePromptScenario`.
 
 ---
 
@@ -237,9 +279,11 @@ go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
 
 `install` writes the correct config — in each agent's own shape — to:
 
-`~/.claude/settings.json` · `~/.cursor/hooks.json` · `~/.codeium/windsurf/hooks.json` · `~/.factory/settings.json` · `~/.gemini/settings.json`
+`~/.claude/settings.json` · `~/.cursor/hooks.json` · `~/.codeium/windsurf/hooks.json` · `~/.factory/settings.json` · `~/.gemini/settings.json` · `~/.copilot/hooks/agenthooks.json`
 
-> VS Code Copilot is **project-scoped** (`.github/hooks/*.json`), so it's set up by hand — see [Testing → Copilot](#github-copilot-vs-code-preview).
+> The **VS Code Copilot extension** is project-scoped (`.github/hooks/*.json`), so it's set up by
+> hand — see [Testing → Copilot](#github-copilot-vs-code-preview). The **Copilot CLI** uses a
+> home-directory hooks file, so `install` writes it automatically.
 
 ---
 
@@ -271,6 +315,7 @@ agenthooks.AddRoute("claude-pre-tool-use", func() {
 | Factory Droid | `…/ast-cx-hooks/droid` |
 | Gemini CLI | `…/ast-cx-hooks/gemini` |
 | VS Code Copilot _(Preview)_ | `…/ast-cx-hooks/copilot` |
+| GitHub Copilot CLI | `…/ast-cx-hooks/copilotcli` |
 
 Each package models that agent's full event surface and ships response builders
 (`additionalContext`, tool-input/output rewrite, permission decisions, and more).
@@ -294,6 +339,9 @@ echo '{"status":"completed","loop_count":0,"conversation_id":"t"}' | ./myhook cu
 
 # Gemini before-tool
 echo '{"tool_name":"run_shell_command","tool_input":{"command":"ls"},"session_id":"t"}' | ./myhook gemini-before-tool
+
+# Copilot CLI pre-tool-use (note: lowercase tool names + FLAT output)
+echo '{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"rm -rf /"}}' | ./myhook copilot-cli-pre-tool-use
 ```
 
 ### Live agents
@@ -303,6 +351,7 @@ echo '{"tool_name":"run_shell_command","tool_input":{"command":"ls"},"session_id
 | **Claude / Cursor / Droid** | `install`, open the agent, trigger a hooked action; config lands in the agent's settings file. |
 | **Windsurf** | `install`; pre-hooks block via **exit 2**, post-hooks are fire-and-forget. |
 | **Gemini** | `install` auto-writes `~/.gemini/settings.json` (matcher-group shape), then run `gemini`. |
+| **Copilot CLI** | `install` auto-writes `~/.copilot/hooks/agenthooks.json` (`{"version":1,"hooks":{…}}`), then run `copilot`. |
 
 #### GitHub Copilot (VS Code) _(Preview)_
 
@@ -319,9 +368,12 @@ Copilot hooks are project-scoped, so add the config by hand — workspace `.gith
 }
 ```
 
-For global coverage, write the same JSON to `~/.copilot/hooks` (no extension).
-
 > VS Code Copilot also reads `~/.claude/settings.json`, so your Claude routes fire for Copilot too — but the Copilot routes above use the correct field shapes (Copilot uses camelCase `sessionId`) and isolate per-agent policy.
+
+> **Copilot CLI is a separate product** from the VS Code extension — use the `copilot-cli-*` routes
+> (auto-installed to `~/.copilot/hooks/agenthooks.json`), not the `copilot-*` ones. Its output is
+> flat (`{"permissionDecision":…}`, no `hookSpecificOutput` wrapper) and its tools are lowercase
+> (`bash`, `create`, `edit`).
 
 ### Unit-test your handler
 
@@ -344,9 +396,10 @@ github.com/CheckmarxDev/ast-cx-hooks
 ├── unified.go           # The 7 unified hooks → thin registry over platform adapters
 ├── registry.go          # Generic registerAdapters wiring
 ├── route_catalog.go     # Single source of truth: route → settings file / event key / style
+├── scenarios.go         # Per-hook registries + named-scenario dispatch (fail-closed gates)
 ├── aliases.go           # Re-exports the hookcore vocabulary as the public API
-├── internal/hookcore/   # Leaf vocabulary: events, verdicts, Run/RunE, shared conventions
-├── claude|cursor|…/     # Per-platform types, response builders, and adapters.go (translation)
+├── internal/hookcore/   # Leaf vocabulary: events, verdicts, Run/RunE, ToolConvention (tool naming)
+├── claude|…|copilotcli/ # Per-platform types, response builders, and adapters.go (translation)
 ├── internal/codec/      # JSON stdin/stdout serialization
 ├── internal/scaffold/   # Templates + generator for `agenthooks init`
 └── cmd/agenthooks/      # CLI: init · build · install
@@ -399,6 +452,7 @@ package can share it without an import cycle, and the public API stays `agenthoo
 
 | Doc | Purpose |
 |-----|---------|
+| [docs/SCHEMA-REFERENCE.md](docs/SCHEMA-REFERENCE.md) | Field-by-field reference: every agent's input/output JSON tags, route map, tool-naming conventions — for diffing against the official docs |
 | [docs/WHATS-NEW.md](docs/WHATS-NEW.md) | Architecture before/after + every extra hook, event, field, builder, and bug fix |
 | [docs/CONFLUENCE-PAGE.md](docs/CONFLUENCE-PAGE.md) | Stakeholder narrative & route reference |
 | [docs/DEMO.md](docs/DEMO.md) | Multi-agent demo: prep, scripted stdin tests, live steps |
@@ -406,11 +460,38 @@ package can share it without an import cycle, and the public API stays `agenthoo
 
 ---
 
+## 🔒 Security model
+
+These hooks gate agent actions, so the failure behavior matters:
+
+- **Malformed / unparseable stdin → fail OPEN.** If a hook cannot decode its input it logs
+  to stderr and exits 0 with no decision, so a bad payload never *blocks* the agent
+  (availability over enforcement). If you rely on a hook as a hard control, monitor its
+  stderr and treat decode errors as alerts — a wire-format change could otherwise silently
+  disable the gate.
+- **Misconfigured scenarios → fail CLOSED.** If a gating hook (`BeforeToolCall`,
+  `BeforeFileRead`, `BeforePrompt`) has named scenarios but no default and none match the
+  key, the framework **denies** rather than allowing, and logs why.
+- **`agenthooks install` is non-destructive.** It merges into existing settings (preserving
+  your other hooks), aborts rather than overwriting a file it cannot parse, and writes a
+  `.bak` before modifying.
+- **Scaffold/example policies are illustrative.** The substring blocklists in `agenthooks init`
+  output and `examples/` are demos and trivially bypassable — real policies should parse and
+  normalize commands and prefer allowlists.
+
+---
+
 ## 🚦 Project status
 
-**Release candidate.** Zero dependencies; layered, fully unit-tested architecture
-(the adapter seam is exercised end-to-end through `Dispatch`, including exit-2 blocking).
-The unified core (idle · tool-call · file-write · prompt) is the most battle-tested surface.
-Before a production rollout, smoke-test each agent live and confirm the newer/niche event
-wire-formats against captured payloads — see [docs/WHATS-NEW.md](docs/WHATS-NEW.md) for the
-verification checklist.
+**Release candidate.** Zero dependencies; layered architecture, fully unit-tested (the adapter
+seam is exercised end-to-end through `Dispatch`, including the exit-2 blocking path; the tool-naming
+`ToolConvention` table has a dedicated unit test; install has golden + merge-safety tests). CI runs
+`gofmt`/`build`/`vet`/`test -race` on every push. Every agent's input/output fields have been
+audited field-by-field against the official live docs.
+
+Before a production rollout: (1) **add a LICENSE** (none yet — required to be legally importable),
+and (2) **smoke-test each agent live**. A small number of fields are modeled best-effort because the
+vendor doc leaves them unspecified — notably the GitHub Copilot CLI `create`/`edit` tool input keys
+(the doc types `tool_input` as `unknown`); these are captured as raw JSON and the diff extraction is
+a documented best-effort guess. See [docs/SCHEMA-REFERENCE.md](docs/SCHEMA-REFERENCE.md) for the full
+field reference and [docs/WHATS-NEW.md](docs/WHATS-NEW.md) for the verification checklist.

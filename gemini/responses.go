@@ -21,7 +21,7 @@ func DenyToolCall(reason string) BeforeToolResult {
 // ApproveToolCallWithInput allows the tool call but rewrites its input before execution.
 // Gemini merges the provided tool_input with the model's arguments.
 func ApproveToolCallWithInput(updated json.RawMessage) BeforeToolResult {
-	return BeforeToolResult{Details: &BeforeToolDetails{RewrittenInput: updated}}
+	return BeforeToolResult{Details: &BeforeToolDetails{HookEventName: "BeforeTool", RewrittenInput: updated}}
 }
 
 // --- AfterTool responses ---
@@ -34,7 +34,7 @@ func AcknowledgeToolCall() AfterToolResult {
 // AddToolAnnotation appends extra context to the tool result seen by the model.
 func AddToolAnnotation(ctx string) AfterToolResult {
 	return AfterToolResult{
-		Details: &AfterToolDetails{ExtraContext: ctx},
+		Details: &AfterToolDetails{HookEventName: "AfterTool", ExtraContext: ctx},
 	}
 }
 
@@ -43,11 +43,22 @@ func DenyToolResult(reason string) AfterToolResult {
 	return AfterToolResult{ResultBase: ResultBase{Decision: "deny", Reason: reason}}
 }
 
+// DenyToolResultWithContext blocks the tool result (decision="deny" + reason) AND
+// appends additionalContext for the model (e.g. an instruction to run a remediation
+// skill on the findings that caused the reject). The top-level decision/reason
+// carries the block; hookSpecificOutput.additionalContext carries the context.
+func DenyToolResultWithContext(reason, ctx string) AfterToolResult {
+	return AfterToolResult{
+		ResultBase: ResultBase{Decision: "deny", Reason: reason},
+		Details:    &AfterToolDetails{HookEventName: "AfterTool", ExtraContext: ctx},
+	}
+}
+
 // ChainToolCall requests a follow-up tool call whose result replaces the original
 // tool response (Gemini's tailToolCallRequest).
 func ChainToolCall(name string, args json.RawMessage) AfterToolResult {
 	return AfterToolResult{
-		Details: &AfterToolDetails{TailToolCall: &TailToolCall{Name: name, Args: args}},
+		Details: &AfterToolDetails{HookEventName: "AfterTool", TailToolCall: &TailToolCall{Name: name, Args: args}},
 	}
 }
 
@@ -68,7 +79,7 @@ func RejectTurn(reason string) BeforeAgentResult {
 // EnrichTurn allows the turn and appends additional context to the prompt.
 func EnrichTurn(ctx string) BeforeAgentResult {
 	return BeforeAgentResult{
-		Details: &BeforeAgentDetails{ExtraContext: ctx},
+		Details: &BeforeAgentDetails{HookEventName: "BeforeAgent", ExtraContext: ctx},
 	}
 }
 
@@ -99,7 +110,7 @@ func RetryWithFeedback(reason string) AfterAgentResult {
 // ClearAgentContext accepts the response and clears the model's conversation memory.
 func ClearAgentContext() AfterAgentResult {
 	return AfterAgentResult{
-		Details: &AfterAgentDetails{ClearContext: true},
+		Details: &AfterAgentDetails{HookEventName: "AfterAgent", ClearContext: true},
 	}
 }
 
@@ -108,14 +119,14 @@ func ClearAgentContext() AfterAgentResult {
 // OverrideModelRequest replaces the outgoing LLM request before it is sent.
 func OverrideModelRequest(req LLMRequest) BeforeModelResult {
 	return BeforeModelResult{
-		Details: &BeforeModelDetails{OverrideRequest: &req},
+		Details: &BeforeModelDetails{HookEventName: "BeforeModel", OverrideRequest: &req},
 	}
 }
 
 // SyntheticModelResponse supplies a mock LLM response, skipping the actual LLM call.
 func SyntheticModelResponse(resp LLMResponse) BeforeModelResult {
 	return BeforeModelResult{
-		Details: &BeforeModelDetails{SyntheticResponse: &resp},
+		Details: &BeforeModelDetails{HookEventName: "BeforeModel", SyntheticResponse: &resp},
 	}
 }
 
@@ -124,7 +135,7 @@ func SyntheticModelResponse(resp LLMResponse) BeforeModelResult {
 // OverrideModelResponse replaces the received LLM response chunk.
 func OverrideModelResponse(resp LLMResponse) AfterModelResult {
 	return AfterModelResult{
-		Details: &AfterModelDetails{OverrideResponse: &resp},
+		Details: &AfterModelDetails{HookEventName: "AfterModel", OverrideResponse: &resp},
 	}
 }
 
@@ -133,7 +144,7 @@ func OverrideModelResponse(resp LLMResponse) AfterModelResult {
 // SetToolConfig constrains which tools the model may select.
 func SetToolConfig(cfg ToolConfig) BeforeToolSelectionResult {
 	return BeforeToolSelectionResult{
-		Details: &ToolSelectionDetails{ToolConfig: &cfg},
+		Details: &ToolSelectionDetails{HookEventName: "BeforeToolSelection", ToolConfig: &cfg},
 	}
 }
 
@@ -165,6 +176,6 @@ func AcknowledgeSession() SessionStartResult { return SessionStartResult{} }
 // InjectSessionContext injects context at session start.
 func InjectSessionContext(ctx string) SessionStartResult {
 	return SessionStartResult{
-		Details: &SessionStartDetails{ExtraContext: ctx},
+		Details: &SessionStartDetails{HookEventName: "SessionStart", ExtraContext: ctx},
 	}
 }

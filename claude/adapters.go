@@ -38,28 +38,63 @@ func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	}
 }
 
+// preToolDecision maps a unified PreToolUse-style verdict to Claude's
+// PreToolUseResult, honoring the full surface (allow/deny/ask + additionalContext
+// + updatedInput) via the shared Path() classifier. It is the single seam both
+// PreToolUse gates use: the tool-call gate (ToolAdapter) and the pre-file-write
+// gate (FileEditAdapter).
+func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
+	switch v.Path() {
+	case hookcore.PathAllowWithInput:
+		return ApproveToolUseWithInput(v.RewrittenInput)
+	case hookcore.PathAllowWithContext:
+		return ApproveToolUseWithContext(v.Context)
+	case hookcore.PathAllowWithNote:
+		return ApproveToolUseWithNote(v.Message)
+	case hookcore.PathAsk:
+		return AskUserAboutTool(v.Message)
+	case hookcore.PathDenyWithContext:
+		return DenyToolUseWithContext(v.Message, v.Context)
+	case hookcore.PathDeny:
+		return DenyToolUse(v.Message)
+	default: // PathAllow
+		return ApproveToolUse()
+	}
+}
+
 // ToolAdapter handles the unified pre-tool-call hook for Claude (Bash + mcp__*).
 func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "claude-pre-tool-use", func() {
 		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
-			kind, cmd := hookcore.StandardToolKind(ev.ToolName, ev.ToolInput)
+			kind, cmd := hookcore.ClaudeTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentClaude, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
 				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
 			})
-			if v.Permit {
-				if v.RewrittenInput != nil {
-					return ApproveToolUseWithInput(v.RewrittenInput)
-				}
-				if v.Message != "" {
-					return ApproveToolUseWithNote(v.Message)
-				}
+			return preToolDecision(v)
+		})
+	}
+}
+
+// FileEditAdapter handles the unified pre-file-write GATE for Claude: PreToolUse
+// scoped to the file-writing tools (Write/Edit/MultiEdit). Unlike FileWriteAdapter
+// (PostToolUse, after the write has landed), this fires BEFORE the write and can
+// DENY it — the route a security scanner uses to block a vulnerable change before
+// it reaches disk, optionally injecting remediation context on the deny. Non-write
+// tools are approved untouched so the generic claude-pre-tool-use gate owns them.
+func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
+	return "claude-pre-file-write", func() {
+		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+			if !hookcore.ClaudeTools.IsWrite(ev.ToolName) {
 				return ApproveToolUse()
 			}
-			if v.NeedsConfirm {
-				return AskUserAboutTool(v.Message)
-			}
-			return DenyToolUse(v.Message)
+			v := fn(hookcore.FileEditEvent{
+				Agent: hookcore.AgentClaude, SessionID: ev.SessionID,
+				FilePath: hookcore.ClaudeTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.ClaudeTools.Changes(ev.ToolName, ev.ToolInput),
+				WorkDir:  ev.WorkDir, Raw: &ev,
+			})
+			return preToolDecision(v)
 		})
 	}
 }
@@ -68,16 +103,19 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 	return "claude-after-file-write", func() {
 		hookcore.Run(func(ev PostToolUseEvent) PostToolUseResult {
-			if !hookcore.IsStandardWriteTool(ev.ToolName) {
+			if !hookcore.ClaudeTools.IsWrite(ev.ToolName) {
 				return AcknowledgeToolUse()
 			}
 			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentClaude, SessionID: ev.SessionID,
-				FilePath: hookcore.StandardFilePath(ev.ToolInput),
-				Changes:  hookcore.StandardWriteChanges(ev.ToolName, ev.ToolInput),
+				FilePath: hookcore.ClaudeTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.ClaudeTools.Changes(ev.ToolName, ev.ToolInput),
 				WorkDir:  ev.WorkDir, Raw: &ev,
 			})
 			if v.Reject {
+				if v.Context != "" {
+					return RejectToolResultWithContext(v.Feedback, v.Context)
+				}
 				return RejectToolResult(v.Feedback)
 			}
 			if v.Footnote != "" {

@@ -38,3 +38,24 @@ func TestApproveToolUseWithInput(t *testing.T) {
 		t.Fatalf("updatedInput not emitted: %s", out)
 	}
 }
+
+func TestRejectToolResultWithContext(t *testing.T) {
+	r := droid.RejectToolResultWithContext("blocked: secret detected", "run the cx-secret-remediation skill")
+	if r.Decision != "block" || r.Reason != "blocked: secret detected" {
+		t.Fatalf("RejectToolResultWithContext should block with reason: decision=%q reason=%q", r.Decision, r.Reason)
+	}
+	if r.Details == nil || r.Details.ExtraContext != "run the cx-secret-remediation skill" {
+		t.Fatalf("RejectToolResultWithContext should carry additionalContext: %+v", r.Details)
+	}
+	b, _ := json.Marshal(r)
+	out := string(b)
+	if !strings.Contains(out, `"decision":"block"`) {
+		t.Fatalf("decision not emitted: %s", out)
+	}
+	if !strings.Contains(out, `"reason":"blocked: secret detected"`) {
+		t.Fatalf("reason not emitted: %s", out)
+	}
+	if !strings.Contains(out, `"additionalContext":"run the cx-secret-remediation skill"`) {
+		t.Fatalf("additionalContext not emitted: %s", out)
+	}
+}

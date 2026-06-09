@@ -52,6 +52,75 @@ func TestPreToolUseResponses(t *testing.T) {
 	if note.Details == nil || note.Details.DecisionReason != "ok with note" {
 		t.Fatal("ApproveToolUseWithNote should carry the note")
 	}
+
+	allowCtx := copilot.ApproveToolUseWithContext("run the remediation skill")
+	if allowCtx.Details == nil || allowCtx.Details.Decision != "allow" {
+		t.Fatal("ApproveToolUseWithContext should set decision=allow")
+	}
+	if allowCtx.Details.ExtraContext != "run the remediation skill" {
+		t.Fatalf("ApproveToolUseWithContext: ExtraContext=%q", allowCtx.Details.ExtraContext)
+	}
+}
+
+// TestDenyToolUseWithContextJSON verifies the deny-with-context builder emits
+// BOTH the deny decision (+ its reason) AND the additionalContext field, since
+// Copilot's PreToolUse permission payload carries additionalContext.
+func TestDenyToolUseWithContextJSON(t *testing.T) {
+	r := copilot.DenyToolUseWithContext("blocked: secret detected", "run /cx-remediate on the leaked secret")
+
+	if r.Details == nil || r.Details.Decision != "deny" {
+		t.Fatalf("DenyToolUseWithContext should set decision=deny, got %+v", r.Details)
+	}
+	if r.Details.DecisionReason != "blocked: secret detected" {
+		t.Fatalf("DecisionReason=%q", r.Details.DecisionReason)
+	}
+	if r.Details.ExtraContext != "run /cx-remediate on the leaked secret" {
+		t.Fatalf("ExtraContext=%q", r.Details.ExtraContext)
+	}
+
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	js := string(out)
+	if !strings.Contains(js, `"permissionDecision":"deny"`) {
+		t.Fatalf("JSON missing deny decision: %s", js)
+	}
+	if !strings.Contains(js, `"permissionDecisionReason":"blocked: secret detected"`) {
+		t.Fatalf("JSON missing deny reason: %s", js)
+	}
+	if !strings.Contains(js, `"additionalContext":"run /cx-remediate on the leaked secret"`) {
+		t.Fatalf("JSON missing additionalContext: %s", js)
+	}
+}
+
+// TestRejectToolResultWithContextJSON verifies the post-write reject-with-context
+// builder emits BOTH the block decision (+ reason) AND additionalContext, since
+// Copilot's PostToolUse payload carries additionalContext under hookSpecificOutput.
+func TestRejectToolResultWithContextJSON(t *testing.T) {
+	r := copilot.RejectToolResultWithContext("rejected: SQL injection introduced", "run /cx-remediate on finding CX-123")
+
+	if r.Decision != "block" || r.Reason != "rejected: SQL injection introduced" {
+		t.Fatalf("RejectToolResultWithContext block/reason: %+v", r)
+	}
+	if r.Details == nil || r.Details.ExtraContext != "run /cx-remediate on finding CX-123" {
+		t.Fatalf("RejectToolResultWithContext should carry additionalContext: %+v", r.Details)
+	}
+
+	out, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	js := string(out)
+	if !strings.Contains(js, `"decision":"block"`) {
+		t.Fatalf("JSON missing block decision: %s", js)
+	}
+	if !strings.Contains(js, `"reason":"rejected: SQL injection introduced"`) {
+		t.Fatalf("JSON missing reason: %s", js)
+	}
+	if !strings.Contains(js, `"additionalContext":"run /cx-remediate on finding CX-123"`) {
+		t.Fatalf("JSON missing additionalContext: %s", js)
+	}
 }
 
 func TestUserPromptSubmitResponses(t *testing.T) {
