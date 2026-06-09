@@ -22,6 +22,10 @@ func main() {
 func handlePrompt(ev hooks.PromptEvent) hooks.PromptVerdict {
 	lower := strings.ToLower(ev.Text)
 
+	// NOTE: these substring patterns are ILLUSTRATIVE examples, not a robust
+	// control. They are easily bypassed via whitespace, encoding, or indirection.
+	// Real policies should use allowlists, structured parsing, and input
+	// normalization (defense in depth), not naive substring blocklists.
 	for _, pat := range []string{
 		"api_key=", "apikey=",
 		"password=", "passwd=",
@@ -102,6 +106,7 @@ dist/
 `
 
 const tmplPolicyJSON = `{
+  "_comment": "ILLUSTRATIVE examples only — these substring patterns are trivially bypassed via whitespace, encoding, or indirection. Real policies should use allowlists, command parsing, and input normalization (defense in depth), not naive substring blocklists.",
   "blocked_shell_patterns": [
     "rm -rf /",
     "curl | bash",

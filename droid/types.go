@@ -16,7 +16,7 @@ type ResultBase struct {
 	Proceed    *bool  `json:"continue,omitempty"`
 	HaltReason string `json:"stopReason,omitempty"`
 	MuteOutput bool   `json:"suppressOutput,omitempty"`
-	SystemNote string  `json:"systemMessage,omitempty"`
+	SystemNote string `json:"systemMessage,omitempty"`
 }
 
 // --- PreToolUse ---
@@ -35,12 +35,15 @@ type PreToolUseResult struct {
 	Details *ToolPermission `json:"hookSpecificOutput,omitempty"`
 }
 
-// ToolPermission carries the permission decision for PreToolUse hooks.
+// ToolPermission carries the permission decision for PreToolUse hooks. Per the
+// Droid hooks reference, the PreToolUse hookSpecificOutput supports exactly
+// hookEventName, permissionDecision, permissionDecisionReason, and updatedInput —
+// there is no additionalContext on this event (unlike PostToolUse).
 type ToolPermission struct {
-	EventName      string         `json:"hookEventName,omitempty"`
-	Decision       string         `json:"permissionDecision,omitempty"`       // "allow", "deny", "ask"
-	DecisionReason string         `json:"permissionDecisionReason,omitempty"`
-	RewrittenInput map[string]any `json:"updatedInput,omitempty"`
+	EventName      string          `json:"hookEventName,omitempty"`
+	Decision       string          `json:"permissionDecision,omitempty"` // "allow", "deny", "ask"
+	DecisionReason string          `json:"permissionDecisionReason,omitempty"`
+	RewrittenInput json.RawMessage `json:"updatedInput,omitempty"`
 }
 
 // --- PostToolUse ---
@@ -78,8 +81,8 @@ type UserPromptSubmitEvent struct {
 // UserPromptSubmitResult is the JSON response for UserPromptSubmit hooks.
 type UserPromptSubmitResult struct {
 	ResultBase
-	Decision string              `json:"decision,omitempty"` // "block" to reject
-	Reason   string              `json:"reason,omitempty"`
+	Decision string               `json:"decision,omitempty"` // "block" to reject
+	Reason   string               `json:"reason,omitempty"`
 	Details  *PromptSubmitDetails `json:"hookSpecificOutput,omitempty"`
 }
 
@@ -137,7 +140,7 @@ type NotificationResult struct {
 // PreCompactEvent is the payload for PreCompact hooks.
 type PreCompactEvent struct {
 	EventBase
-	Trigger            string `json:"trigger"`             // "manual" or "auto"
+	Trigger            string `json:"trigger"` // "manual" or "auto"
 	CustomInstructions string `json:"custom_instructions"`
 }
 

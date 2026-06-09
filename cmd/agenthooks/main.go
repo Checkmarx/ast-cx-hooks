@@ -8,12 +8,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/install"
+	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
 	"github.com/CheckmarxDev/ast-cx-hooks/internal/scaffold"
 )
 
@@ -64,34 +66,144 @@ func runInstall(binaryPath string) error {
 	if err != nil {
 		return fmt.Errorf("resolving binary path: %w", err)
 	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("finding home directory: %w", err)
 	}
 
-	cmdFor := func(route string) string {
-		return install.FormatCommand(abs, route)
+	// Group catalog entries by settings file so each file is written once,
+	// preserving registration order for stable output.
+	type group struct {
+		entries []agenthooks.CatalogEntry
+	}
+	groups := map[string]*group{}
+	var order []string
+	for _, e := range agenthooks.Catalog {
+		g := groups[e.SettingsRel]
+		if g == nil {
+			g = &group{}
+			groups[e.SettingsRel] = g
+			order = append(order, e.SettingsRel)
+		}
+		g.entries = append(g.entries, e)
 	}
 
-	agents := []struct {
-		name string
-		fn   func(string, install.CmdForFunc) error
-	}{
-		{"Claude Code", install.InstallClaude},
-		{"Cursor", install.InstallCursor},
-		{"Windsurf Cascade", install.InstallWindsurf},
-		{"Factory Droid", install.InstallDroid},
-		{"Gemini CLI", install.InstallGemini},
-	}
-
-	for _, a := range agents {
-		if err := a.fn(home, cmdFor); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", a.name, err)
+	for _, rel := range order {
+		g := groups[rel]
+		path := filepath.Join(home, filepath.FromSlash(rel))
+		err := patchJSONFile(path, func(m map[string]any) {
+			for _, e := range g.entries {
+				writeHookEntry(m, e, abs)
+			}
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s: %v\n", rel, err)
 		} else {
-			fmt.Printf("✓ %s configured\n", a.name)
+			fmt.Printf("✓ %s (%d hooks) → %s\n", g.entries[0].Agent, len(g.entries), rel)
 		}
 	}
+	fmt.Println("note: VS Code Copilot hooks are project-scoped (.github/hooks) — see README for manual setup")
 	return nil
+}
+
+// writeHookEntry installs a single catalog entry into the in-memory settings map
+// according to its platform's encoding style. Nested styles APPEND to (and de-dup
+// within) the existing array so a user's own hook entries for the same event are
+// preserved; the flat style is single-command per key by design.
+func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, binary string) {
+	cmd := binary + " " + e.Route
+	switch e.Style {
+	case agenthooks.StyleClaudeNested:
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
+		}
+	case agenthooks.StyleGeminiNested:
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{
+				"matcher": "",
+				"hooks":   []any{map[string]any{"type": "command", "command": cmd}},
+			})
+		}
+	case agenthooks.StyleCopilotCLINested:
+		// Same nesting as Claude, plus a top-level "version": 1 the CLI requires.
+		if _, ok := m["version"]; !ok {
+			m["version"] = 1
+		}
+		hooks := ensureMap(m, "hooks")
+		arr := toSlice(hooks[e.EventKey])
+		if !containsCommand(arr, cmd) {
+			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
+		}
+	case agenthooks.StyleFlatCommand:
+		m[e.EventKey] = map[string]any{"command": cmd}
+	}
+}
+
+// patchJSONFile reads a JSON file (creating it if absent), applies patch, and writes
+// it back. If the existing file is non-empty but not valid JSON it ABORTS without
+// writing (so user config is never clobbered), and it backs up the original to
+// <path>.bak before modifying it.
+func patchJSONFile(path string, patch func(map[string]any)) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	m := map[string]any{}
+	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if err := json.Unmarshal(data, &m); err != nil {
+			return fmt.Errorf("refusing to overwrite %s: existing file is not valid JSON: %w", path, err)
+		}
+		if err := os.WriteFile(path+".bak", data, 0o644); err != nil {
+			return fmt.Errorf("writing backup %s.bak: %w", path, err)
+		}
+	}
+	patch(m)
+	out, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(out, '\n'), 0o644)
+}
+
+func ensureMap(m map[string]any, key string) map[string]any {
+	if v, ok := m[key]; ok {
+		if sub, ok := v.(map[string]any); ok {
+			return sub
+		}
+	}
+	sub := map[string]any{}
+	m[key] = sub
+	return sub
+}
+
+// toSlice returns v as a []any (the shape decoded JSON arrays take), or nil.
+func toSlice(v any) []any {
+	if s, ok := v.([]any); ok {
+		return s
+	}
+	return nil
+}
+
+// containsCommand reports whether arr already holds a hook entry for cmd, looking
+// one level into Gemini's nested {matcher, hooks:[...]} groups.
+func containsCommand(arr []any, cmd string) bool {
+	for _, it := range arr {
+		m, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["command"] == cmd {
+			return true
+		}
+		if inner, ok := m["hooks"].([]any); ok && containsCommand(inner, cmd) {
+			return true
+		}
+	}
+	return false
 }
 
 // =============================================================================

@@ -5,6 +5,12 @@
 *.so
 *.dylib
 
+# Cross-compiled binaries from `agenthooks build`
+dist/
+
+# Settings-file backups written by `agenthooks install`
+*.bak
+
 # Test binary, built with `go test -c`
 *.test
 
@@ -33,3 +39,9 @@ Thumbs.db
 # Environment / secrets
 .env
 .env.*
+
+# Internal-only docs (not part of the published package). The public docs linked
+# from the README — WHATS-NEW, SCHEMA-REFERENCE, CONFLUENCE-PAGE, DEMO,
+# VIDEO-STORYBOARD — are tracked.
+docs/codebase/
+docs/confluence-agent-hooks-framework.md

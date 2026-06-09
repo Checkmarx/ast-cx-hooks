@@ -1,13 +1,17 @@
 # cxagenthooks
 
-A Go framework for building hooks that work across **all major AI coding agents** — with a single codebase.
-
-Write one handler, compile one binary, and it works with **Claude Code**, **Cursor**, **Windsurf Cascade**, **Factory Droid**, and **Gemini CLI**.
+One hook codebase for every AI coding agent. Write a single handler, compile one
+binary, and it runs across **Claude Code · Cursor · Windsurf Cascade · Factory Droid ·
+Gemini CLI · GitHub Copilot (VS Code) · GitHub Copilot CLI** — no per-platform code.
 
 ```go
 package main
 
-import "github.com/CheckmarxDev/ast-cx-hooks"
+import (
+    "strings"
+
+    "github.com/CheckmarxDev/ast-cx-hooks"
+)
 
 func main() {
     agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
@@ -20,16 +24,8 @@ func main() {
 }
 ```
 
-## Why agenthooks?
-
-Every AI coding agent has its own hook system with different JSON schemas, response formats, and configuration files. `agenthooks` abstracts all of that away:
-
-| Feature | Without agenthooks | With agenthooks |
-|---|---|---|
-| Hook handlers | 5 separate implementations | 1 unified handler |
-| JSON schemas | Learn 5 different formats | Learn 1 event struct |
-| Config files | Maintain 5 config files | `agenthooks install` does it |
-| Binary builds | Manual per-platform | `agenthooks build` cross-compiles |
+That one handler gates shell commands in all seven agents — the library translates the
+wire format (JSON schema, response shape, blocking semantics) per platform.
 
 ## Installation
 
@@ -37,113 +33,184 @@ Every AI coding agent has its own hook system with different JSON schemas, respo
 go get github.com/CheckmarxDev/ast-cx-hooks
 ```
 
-## Supported Agents
+Zero dependencies (standard library only).
 
-| Agent | Config Location | Hook Style |
+## Supported agents
+
+| Agent | Config location | Output style |
 |---|---|---|
-| **Claude Code** | `~/.claude/settings.json` | JSON stdin → JSON stdout |
-| **Cursor** | `~/.cursor/hooks.json` | JSON stdin → JSON stdout |
-| **Windsurf Cascade** | `~/.codeium/windsurf/hooks.json` | JSON stdin, exit code 2 to block |
-| **Factory Droid** | `~/.factory/settings.json` | JSON stdin → JSON stdout |
-| **Gemini CLI** | `~/.gemini/settings.json` | JSON stdin, exit code 2 to block |
+| Claude Code | `~/.claude/settings.json` | nested JSON decision |
+| Cursor | `~/.cursor/hooks.json` | flat JSON decision |
+| Windsurf Cascade | `~/.codeium/windsurf/hooks.json` | exit code `2` only |
+| Factory Droid | `~/.factory/settings.json` | nested JSON / exit `2` |
+| Gemini CLI | `~/.gemini/settings.json` | JSON decision / exit `2` |
+| GitHub Copilot (VS Code) | `.github/hooks/*.json` (project-scoped) | nested JSON decision |
+| GitHub Copilot CLI | `~/.copilot/hooks/agenthooks.json` | flat JSON / exit `2` |
 
-## Unified Hooks
+The VS Code Copilot extension and the Copilot **CLI** are different products with
+incompatible hook schemas (nested vs. flat output, `updatedInput` vs. `modifiedArgs`,
+`runTerminalCommand` vs. `bash`), so they are separate packages — `copilot` and `copilotcli`.
 
-agenthooks provides **4 unified hook categories** that map to platform-specific events automatically:
+## Unified hooks
 
-### `WhenAgentIdle` — Agent finished responding
+**8 unified hook categories** map automatically to each platform's native events.
 
-Fires when the agent completes a response. Use it to force the agent to continue working.
-
+### `WhenAgentIdle` — the agent finished responding
 ```go
 agenthooks.WhenAgentIdle(func(e agenthooks.AgentIdleEvent) agenthooks.IdleVerdict {
     if e.IsLooping() {
-        return agenthooks.Resume() // break infinite loops
+        return agenthooks.Resume() // break infinite continuation loops
     }
     return agenthooks.Interrupt("Please run the tests before finishing.")
 })
 ```
+Verdicts: `Resume()` · `Interrupt(feedback)`
 
-**Platform mapping:**
-- Claude Code → `Stop`
-- Cursor → `stop`
-- Windsurf → `post_cascade_response` *(fire-and-forget)*
-- Factory Droid → `Stop`
-- Gemini CLI → `AfterAgent`
-
-### `BeforeToolCall` — Gate tool/command execution
-
-Fires before a tool call or shell command executes. Use it to enforce security policies.
-
+### `BeforeToolCall` — gate tool & command execution
 ```go
 agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
     if e.IsShell() {
         return agenthooks.AskUser("Please confirm this shell command.")
     }
-    if e.IsMCP() {
-        return agenthooks.AllowWithNote("MCP tool approved: " + e.ToolName)
-    }
-    return agenthooks.Allow()
+    return agenthooks.AllowWithInput(sanitize(e.ToolArgs)) // rewrite tool input before it runs
 })
 ```
+Verdicts: `Allow()` · `AllowWithNote(msg)` · `AllowWithContext(ctx)` · `AllowWithInput(json)` · `AskUser(reason)` · `Deny(reason)` · `DenyWithContext(reason, ctx)`
 
-**Verdicts:** `Allow()`, `AllowWithNote(msg)`, `Deny(reason)`, `AskUser(reason)`
+### `BeforeFileEdit` — gate a file write **before** it lands (can block)
+Fires before the agent writes/edits a file, with the proposed `Changes` available so a
+handler can scan the content and **deny** the write — the route a security scan uses to
+block a vulnerable change before it reaches disk. (Contrast with `AfterFileWrite`, which
+fires post-write and can only annotate.)
+```go
+agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
+    for _, d := range e.Changes {
+        if scanForSecret(d.After) {
+            return agenthooks.RejectEditWithContext(
+                "Secret detected in "+e.FilePath,
+                "Remove the secret and retry the write.") // additionalContext steers the agent
+        }
+    }
+    return agenthooks.AcceptEdit()
+})
+```
+Verdicts: `AcceptEdit()` · `AcceptEditWithInput(json)` · `RejectEdit(reason)` · `RejectEditWithContext(reason, ctx)` · `AskBeforeEdit(reason)`
 
-**Platform mapping:**
-- Claude Code → `PreToolUse`
-- Cursor → `beforeShellExecution` + `beforeMCPExecution`
-- Windsurf → `pre_run_command` + `pre_mcp_tool_use`
-- Factory Droid → `PreToolUse`
-- Gemini CLI → `BeforeTool`
-
-### `AfterFileWrite` — React to file edits
-
-Fires after the agent writes or edits a file. Use it to run linters, scanners, or inject feedback.
-
+### `AfterFileWrite` — react to a completed file edit
 ```go
 agenthooks.AfterFileWrite(func(e agenthooks.FileWriteEvent) agenthooks.FileWriteVerdict {
     if strings.HasSuffix(e.FilePath, ".go") {
-        // Run a linter, scanner, etc.
-        return agenthooks.AnnotateWrite("Reminder: run go vet before committing.")
+        return agenthooks.AnnotateWrite("Reminder: run `go vet` before committing.")
     }
     return agenthooks.AcceptWrite()
 })
 ```
+Verdicts: `AcceptWrite()` · `RejectWrite(reason)` · `RejectWriteWithContext(reason, ctx)` · `AnnotateWrite(note)`
 
-**Verdicts:** `AcceptWrite()`, `RejectWrite(reason)`, `AnnotateWrite(note)`
-
-**Platform mapping:**
-- Claude Code → `PostToolUse` (Write/Edit tools)
-- Cursor → `afterFileEdit`
-- Windsurf → `post_write_code`
-- Factory Droid → `PostToolUse` (Write/Edit tools)
-- Gemini CLI → `AfterTool` (Write/Edit tools)
-
-### `BeforePrompt` — Filter or enrich user prompts
-
-Fires when the user submits a prompt, before the agent processes it.
-
+### `BeforePrompt` — filter or enrich user prompts
 ```go
 agenthooks.BeforePrompt(func(e agenthooks.PromptEvent) agenthooks.PromptVerdict {
-    if containsSensitiveInfo(e.Text) {
+    if containsSecret(e.Text) {
         return agenthooks.RejectPrompt("Prompt contains sensitive information.")
     }
     return agenthooks.EnrichPrompt("Always follow our coding standards.")
 })
 ```
+Verdicts: `AcceptPrompt()` · `RejectPrompt(msg)` · `EnrichPrompt(context)`
 
-**Verdicts:** `AcceptPrompt()`, `RejectPrompt(msg)`, `EnrichPrompt(context)`
+### `WhenSubagentIdle` — gate subagent completion
+Reuses `AgentIdleEvent` / `IdleVerdict`; `Interrupt` blocks the subagent from stopping.
+Verdicts: `Resume()` · `Interrupt(feedback)`
 
-**Platform mapping:**
-- Claude Code → `UserPromptSubmit`
-- Cursor → `beforeSubmitPrompt`
-- Windsurf → `pre_user_prompt`
-- Factory Droid → `UserPromptSubmit`
-- Gemini CLI → `BeforeAgent`
+### `AfterToolFailure` — react to failed tool calls
+```go
+agenthooks.AfterToolFailure(func(e agenthooks.ToolFailureEvent) agenthooks.ToolFailureVerdict {
+    return agenthooks.AnnotateFailure("Tool " + e.ToolName + " failed: " + e.Error)
+})
+```
+Verdicts: `AcknowledgeFailure()` · `AnnotateFailure(note)` · `RejectAfterFailure(reason)`
 
-## Platform-Specific Hooks
+### `BeforeFileRead` — gate the agent reading a file
+```go
+agenthooks.BeforeFileRead(func(e agenthooks.FileReadEvent) agenthooks.FileReadVerdict {
+    if strings.HasSuffix(e.FilePath, ".env") {
+        return agenthooks.DenyRead("Reading secret files is not allowed.")
+    }
+    return agenthooks.AllowRead()
+})
+```
+Verdicts: `AllowRead()` · `DenyRead(reason)`
 
-For advanced use cases that need platform-specific event data, use `AddRoute` with per-platform packages:
+## Support matrix
+
+Which unified hooks each agent supports today:
+
+| Unified hook | Claude | Cursor | Windsurf | Droid | Gemini | Copilot | Copilot CLI |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `WhenAgentIdle` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
+| `BeforeToolCall` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `BeforeFileEdit` | ✅ ⁴ | ✅ | ✅ | ✅ | ✅ | ✅ ⁴ | ✅ |
+| `AfterFileWrite` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
+| `BeforePrompt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ ³ |
+| `WhenSubagentIdle` | ✅ | ✅ | — | ✅ | — | ✅ | ✅ |
+| `AfterToolFailure` | ✅ | ✅ ² | — | — | — | — | ✅ |
+| `BeforeFileRead` | — | ✅ | ✅ | — | — | — | — |
+
+<sub>¹ fire-and-forget — feedback is logged, not enforced by the agent.  ² observational on Cursor — the verdict is ignored.  ³ observational on Copilot CLI — `userPromptSubmitted` output is not processed.  ⁴ `additionalContext` on a deny is delivered only where the agent's hook protocol defines that field — Claude and VS Code Copilot on the pre-tool / pre-file gates; elsewhere a deny carries its reason only (context is dropped and logged).</sub>
+
+## Multiple implementations per hook (scenarios)
+
+Several teams — or scenarios — can share **one** hook. Register the **default** with
+`BeforeToolCall(fn)` and any number of **named scenarios** with `BeforeToolCallScenario(name, fn)`.
+The caller passes a **scenario key**; the framework runs the matching handler (or the default).
+
+```go
+agenthooks.BeforeToolCallScenario("phoenix", phoenix.Handle)
+agenthooks.BeforeToolCallScenario("cypher",  cypher.Handle)
+agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+    return agenthooks.Allow() // default when no scenario key matches
+})
+```
+
+The key is supplied per invocation (default selector = `ScenarioFromArg`):
+
+| Channel | How |
+|---|---|
+| CLI arg | `myhook claude-pre-tool-use phoenix` |
+| Env var | `AGENTHOOKS_SCENARIO=phoenix myhook claude-pre-tool-use` |
+| Event content | `agenthooks.UseScenarioSelector(func(m agenthooks.ScenarioMeta) string { … })` |
+
+Resolution order: a matching named scenario → the registered default → a fallback verdict
+(fail-**closed** for the gating hooks). Every unified hook has a `…Scenario` variant.
+
+## CLI: scaffold, build, install
+
+```bash
+# Scaffold a starter hooks project (main.go + policy.json + .gitignore)
+go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks
+
+# Build for the current platform, or cross-compile to dist/ (macOS/Linux/Windows × amd64/arm64)
+go build -o myhook .
+go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks build
+
+# Write the correct hook config — in each agent's own shape — into every settings file
+go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
+```
+
+`install` writes to `~/.claude/settings.json`, `~/.cursor/hooks.json`,
+`~/.codeium/windsurf/hooks.json`, `~/.factory/settings.json`, `~/.gemini/settings.json`,
+and `~/.copilot/hooks/agenthooks.json`. The VS Code Copilot extension is project-scoped
+(`.github/hooks/*.json`) and is set up by hand.
+
+**Embedding installation.** Consumers that wire these hooks into their own CLI can import the
+`install` package directly — `install.InstallClaude/InstallCursor/InstallWindsurf/InstallDroid/InstallGemini(home, cmdFor)`
+plus `install.FormatCommand` and the `install.CmdForFunc` type — to control the command each
+route maps to (e.g. `cx hooks <route>`). Route → settings-file / event-key / encoding is driven by
+the single `agenthooks.Catalog` source of truth.
+
+## Platform-specific hooks
+
+Need raw, per-platform event data? Use `AddRoute` with a platform package:
 
 ```go
 import (
@@ -161,189 +228,33 @@ agenthooks.AddRoute("claude-pre-tool-use", func() {
 })
 ```
 
-### Available packages
+Packages: `claude` · `cursor` · `windsurf` · `droid` · `gemini` · `copilot` · `copilotcli`.
+Each models its agent's full event surface and ships response builders (`additionalContext`,
+tool-input/output rewrite, permission decisions, and more).
 
-| Package | Import Path |
-|---|---|
-| Claude Code | `github.com/CheckmarxDev/ast-cx-hooks/claude` |
-| Cursor | `github.com/CheckmarxDev/ast-cx-hooks/cursor` |
-| Windsurf | `github.com/CheckmarxDev/ast-cx-hooks/windsurf` |
-| Factory Droid | `github.com/CheckmarxDev/ast-cx-hooks/droid` |
-| Gemini CLI | `github.com/CheckmarxDev/ast-cx-hooks/gemini` |
+## Testing
 
-## Building & Installing
-
-### Scaffold a new hooks project
-
-```bash
-# Create a starter hooks project in the current directory
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks init
-
-# Or scaffold into a specific directory
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks-project
-```
-
-The scaffold command generates:
-- `main.go` with all 4 unified hook handlers wired
-- `README.md` with quick-start and local testing commands
-- `.gitignore` for common build outputs and secrets
-- `policy.json` starter policy you can customize
-
-### Build your hook binary
-
-```bash
-# Build for current platform
-go build -o myhook .
-
-# Cross-compile for all supported platforms (macOS, Linux, Windows × amd64/arm64)
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks build
-# Outputs to dist/
-```
-
-### Install hooks into all agents
-
-```bash
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
-```
-
-This automatically writes the correct configuration into each agent's settings file:
-- `~/.claude/settings.json`
-- `~/.cursor/hooks.json`
-- `~/.codeium/windsurf/hooks.json`
-- `~/.factory/settings.json`
-
-## Complete Example
-
-Here's a complete hook binary that works across all 5 agents:
-
-```go
-package main
-
-import (
-    "strings"
-
-    "github.com/CheckmarxDev/ast-cx-hooks"
-)
-
-func main() {
-    // Gate dangerous shell commands
-    agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
-        if e.IsShell() {
-            for _, banned := range []string{"rm -rf", "DROP TABLE", "format"} {
-                if strings.Contains(e.Command, banned) {
-                    return agenthooks.Deny("Blocked: command contains '" + banned + "'")
-                }
-            }
-        }
-        return agenthooks.Allow()
-    })
-
-    // Force tests before agent finishes
-    agenthooks.WhenAgentIdle(func(e agenthooks.AgentIdleEvent) agenthooks.IdleVerdict {
-        if e.IsLooping() {
-            return agenthooks.Resume()
-        }
-        return agenthooks.Interrupt("Please run all tests before finishing.")
-    })
-
-    // Block prompts with secrets
-    agenthooks.BeforePrompt(func(e agenthooks.PromptEvent) agenthooks.PromptVerdict {
-        if strings.Contains(e.Text, "API_KEY") {
-            return agenthooks.RejectPrompt("Do not include API keys in prompts.")
-        }
-        return agenthooks.AcceptPrompt()
-    })
-
-    agenthooks.Dispatch()
-}
-```
-
-### Build & install it:
+Hook binaries read JSON from stdin and write JSON to stdout; the first arg is the **route**:
 
 ```bash
 go build -o myhook .
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
+
+# Claude pre-file-write (block a vulnerable write before it lands)
+echo '{"tool_name":"Write","tool_input":{"file_path":"/app/x.py","content":"eval(user)"},"session_id":"t"}' | ./myhook claude-pre-file-write
+
+# Cursor stop
+echo '{"status":"completed","loop_count":0,"conversation_id":"t"}' | ./myhook cursor-stop
+
+# Copilot CLI pre-tool-use (lowercase tool names + FLAT output)
+echo '{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"rm -rf /"}}' | ./myhook copilot-cli-pre-tool-use
 ```
 
-## Testing with Different Agents
-
-### Manual Testing (any agent)
-
-Hook binaries read JSON from stdin and write JSON to stdout. You can test them directly:
-
-```bash
-# Build your hook
-go build -o myhook .
-
-# Test the "before tool call" hook (Claude Code format)
-echo '{"tool_name":"Bash","tool_input":{"command":"rm -rf /"},"session_id":"test","cwd":"/tmp"}' | ./myhook claude-pre-tool-use
-
-# Test the "agent idle" hook (Cursor format)
-echo '{"status":"completed","loop_count":0,"conversation_id":"test"}' | ./myhook cursor-stop
-
-# Test a Gemini CLI hook
-echo '{"tool_name":"shell","tool_input":{"command":"ls"},"session_id":"test","cwd":"/tmp"}' | ./myhook gemini-before-tool
-```
-
-The first argument is the **route name** — it tells the binary which handler to invoke.
-
-### Testing with Claude Code
-
-1. Build and install:
-   ```bash
-   go build -o myhook .
-   go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
-   ```
-2. Open Claude Code — your hooks are now active.
-3. Try triggering a hooked action (e.g., ask Claude to run a shell command).
-4. Check `~/.claude/settings.json` to see the generated config.
-
-### Testing with Cursor
-
-1. Build and install (same as above).
-2. Open Cursor IDE — hooks are configured in `~/.cursor/hooks.json`.
-3. Use the agent to run shell commands or edit files to trigger hooks.
-
-### Testing with Windsurf Cascade
-
-1. Build and install.
-2. Open Windsurf — hooks are in `~/.codeium/windsurf/hooks.json`.
-3. Note: Windsurf pre-hooks block via **exit code 2**; post-hooks are fire-and-forget.
-
-### Testing with Factory Droid
-
-1. Build and install.
-2. Open Factory — hooks are in `~/.factory/settings.json`.
-3. Droid hooks follow the same stdin/stdout JSON pattern as Claude.
-
-### Testing with Gemini CLI
-
-1. Build and install.
-2. Currently the `install` command does not auto-configure Gemini CLI. Manually add hooks to `~/.gemini/settings.json`:
-   ```json
-   {
-     "hooks": {
-       "BeforeTool": [{ "command": "/path/to/myhook gemini-before-tool" }],
-       "AfterAgent": [{ "command": "/path/to/myhook gemini-after-agent" }],
-       "BeforeAgent": [{ "command": "/path/to/myhook gemini-before-agent" }],
-       "AfterTool": [{ "command": "/path/to/myhook gemini-after-file-tool" }]
-     }
-   }
-   ```
-3. Run `gemini` — your hooks are active.
-
-### Unit Testing Your Hooks
-
-Write standard Go tests for your handler logic:
+Unit-test a handler directly — it's plain Go:
 
 ```go
 func TestDenyDangerousCommands(t *testing.T) {
-    event := agenthooks.ToolCallEvent{
-        Kind:    agenthooks.ToolKindShell,
-        Command: "rm -rf /important",
-    }
-    verdict := myToolCallHandler(event)
-    if verdict.Permit {
+    e := agenthooks.ToolCallEvent{Kind: agenthooks.ToolKindShell, Command: "rm -rf /important"}
+    if myToolCallHandler(e).Permit {
         t.Fatal("expected dangerous command to be denied")
     }
 }
@@ -351,54 +262,45 @@ func TestDenyDangerousCommands(t *testing.T) {
 
 ## Architecture
 
-```
+```text
 github.com/CheckmarxDev/ast-cx-hooks
-├── agenthooks.go      # Core API: AddRoute, Dispatch, Process, ProcessE
-├── unified.go         # Unified hooks: WhenAgentIdle, BeforeToolCall, etc.
-├── claude/            # Claude Code types, events & response helpers
-├── cursor/            # Cursor IDE types, events & response helpers
-├── windsurf/          # Windsurf Cascade types, events & response helpers
-├── droid/             # Factory Droid types, events & response helpers
-├── gemini/            # Gemini CLI types, events & response helpers
-├── internal/codec/    # JSON stdin/stdout serialization
-├── internal/scaffold/ # Templates and generator for `agenthooks init`
-└── cmd/agenthooks/    # CLI tool: init, install, and build commands
+├── agenthooks.go        # Core: AddRoute, Dispatch, Process/ProcessE, RouteNames
+├── unified.go           # The 8 unified hooks → thin registry over platform adapters
+├── registry.go          # Generic registerAdapters wiring
+├── route_catalog.go     # Single source of truth: route → settings file / event key / style
+├── scenarios.go         # Per-hook registries + named-scenario dispatch (fail-closed gates)
+├── aliases.go           # Re-exports the hookcore vocabulary as the public API
+├── install/             # Importable installer (InstallClaude/…, CmdForFunc) — Catalog-driven
+├── internal/hookcore/   # Leaf vocabulary: events, verdicts, Run/RunE, ToolConvention (tool naming)
+├── claude|…|copilotcli/ # Per-platform types, response builders, and adapters.go (translation)
+├── internal/scaffold/   # Templates + generator for `agenthooks init`
+└── cmd/agenthooks/      # CLI: init · build · install
 ```
 
-### How it works
+**Flow:** the agent invokes `myhook <route>` → `Dispatch` looks up the route → the platform's
+`adapters.go` decodes the event, builds a unified event, calls your handler, and maps the verdict
+back to that platform's response — all via `hookcore.Run`/`RunE`. The unified vocabulary lives in
+the leaf `internal/hookcore` package so every platform package shares it without an import cycle,
+and the public API stays `agenthooks.*`.
 
-1. Your `main()` registers unified handlers (e.g., `BeforeToolCall`).
-2. Each unified handler internally registers platform-specific routes.
-3. `Dispatch()` reads `os.Args[1]` to select the correct route.
-4. `Process()` reads JSON from stdin, calls your handler, writes JSON to stdout.
-5. The agent invokes your binary with a subcommand like `myhook claude-pre-tool-use`.
+## API reference
 
-## API Reference
+**Core:** `AddRoute(name, fn)` · `Dispatch()` · `Process(handler)` · `ProcessE(handler)` (returned error blocks via exit `2`) · `RouteNames()`
 
-### Core Functions
+**Unified hooks:** `WhenAgentIdle` · `WhenSubagentIdle` · `BeforeToolCall` · `BeforeFileEdit` · `AfterFileWrite` · `AfterToolFailure` · `BeforeFileRead` · `BeforePrompt` (each with a `…Scenario` variant)
 
-| Function | Description |
-|---|---|
-| `AddRoute(name, fn)` | Register a handler for a specific route name |
-| `Dispatch()` | Run the matching handler based on `os.Args[1]` |
-| `Process(handler)` | Read JSON stdin → call handler → write JSON stdout |
-| `ProcessE(handler)` | Like `Process` but supports blocking errors (exit 2) |
+**Event helpers:** `AgentIdleEvent.IsLooping()` · `ToolCallEvent.IsShell()` · `ToolCallEvent.IsMCP()`
 
-### Unified Hooks
+## Security model
 
-| Function | When it fires |
-|---|---|
-| `WhenAgentIdle(fn)` | Agent finishes responding |
-| `BeforeToolCall(fn)` | Before a tool/command executes |
-| `AfterFileWrite(fn)` | After a file is written/edited |
-| `BeforePrompt(fn)` | Before a user prompt is processed |
+These hooks gate agent actions, so failure behavior matters:
 
-### Event Helpers
-
-| Method | On | Description |
-|---|---|---|
-| `e.IsLooping()` | `AgentIdleEvent` | Detects infinite loops |
-| `e.IsShell()` | `ToolCallEvent` | Is this a shell command? |
-| `e.IsMCP()` | `ToolCallEvent` | Is this an MCP tool call? |
-
-
+- **Malformed / unparseable stdin → fail OPEN.** A hook that cannot decode its input logs to
+  stderr and exits 0 with no decision, so a bad payload never blocks the agent. If you rely on a
+  hook as a hard control, monitor its stderr — a wire-format change could otherwise silently
+  disable the gate.
+- **Misconfigured scenarios → fail CLOSED.** A gating hook (`BeforeToolCall`, `BeforeFileEdit`,
+  `BeforeFileRead`, `BeforePrompt`) with named scenarios but no default and no match **denies**
+  rather than allowing, and logs why.
+- **`install` is non-destructive.** It merges into existing settings (preserving your other
+  hooks), aborts rather than overwriting a file it cannot parse, and writes a `.bak` first.

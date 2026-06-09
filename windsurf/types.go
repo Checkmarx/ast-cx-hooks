@@ -7,7 +7,8 @@ type EventBase struct {
 	ActionName   string `json:"agent_action_name"` // e.g. "pre_run_command"
 	TrajectoryID string `json:"trajectory_id"`     // conversation identifier
 	ExecutionID  string `json:"execution_id"`      // single agent turn identifier
-	Timestamp    string `json:"timestamp"`          // ISO 8601
+	Timestamp    string `json:"timestamp"`         // ISO 8601
+	ModelName    string `json:"model_name"`        // human-readable model, e.g. "Claude Sonnet 4"
 }
 
 // --- pre_read_code / post_read_code ---
