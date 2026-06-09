@@ -495,6 +495,140 @@ func AfterFileWrite(fn FileWriteFunc) {
 }
 
 // =============================================================================
+// BeforeFileEdit — unified pre-file-edit handler
+// =============================================================================
+
+// FileEditEvent provides a unified view of pre-file-edit events across all platforms.
+type FileEditEvent struct {
+	Agent     AgentID
+	SessionID string
+	FilePath  string
+	Changes   []FileDiff // proposed Before/After pairs; Before="" for full-file writes
+	WorkDir   string
+	Raw       any
+}
+
+// FileEditVerdict is the decision returned by a BeforeFileEdit handler.
+type FileEditVerdict struct {
+	Reject   bool   // true = block the file edit before it is written to disk
+	Feedback string // reason sent to the agent when Reject is true
+}
+
+// AcceptEdit allows the file edit to proceed.
+func AcceptEdit() FileEditVerdict { return FileEditVerdict{} }
+
+// RejectEdit blocks the file edit and sends a reason to the agent.
+func RejectEdit(reason string) FileEditVerdict { return FileEditVerdict{Reject: true, Feedback: reason} }
+
+// FileEditFunc is the handler signature for BeforeFileEdit.
+type FileEditFunc func(FileEditEvent) FileEditVerdict
+
+// BeforeFileEdit registers a unified handler for pre-file-edit events on all platforms:
+//   - Claude Code   → "claude-pre-file-write"    (PreToolUse for Write/Edit/MultiEdit)
+//   - Cursor        → "cursor-before-file-read"  (beforeReadFile hook)
+//   - Windsurf      → "windsurf-pre-write-code"  (pre_write_code, blocking via exit 2)
+//   - Factory Droid → "droid-pre-file-write"     (PreToolUse for Write/Edit/MultiEdit)
+//   - Gemini CLI    → "gemini-before-file-tool"  (BeforeTool for write/edit tools)
+func BeforeFileEdit(fn FileEditFunc) {
+	// Claude Code — PreToolUse filtered to Write/Edit/MultiEdit (separate route)
+	AddRoute("claude-pre-file-write", func() {
+		Process(func(ev claude.PreToolUseEvent) claude.PreToolUseResult {
+			if ev.ToolName != "Write" && ev.ToolName != "Edit" && ev.ToolName != "MultiEdit" {
+				return claude.ApproveToolUse()
+			}
+			changes := claudeWriteChanges(ev.ToolName, ev.ToolInput)
+			verdict := fn(FileEditEvent{
+				Agent: AgentClaude, SessionID: ev.SessionID,
+				FilePath: claudeFilePath(ev.ToolInput), Changes: changes, WorkDir: ev.WorkDir,
+				Raw: &ev,
+			})
+			if verdict.Reject {
+				return claude.DenyToolUse(verdict.Feedback)
+			}
+			return claude.ApproveToolUse()
+		})
+	})
+
+	// Cursor — beforeReadFile (fires before the agent reads a file to edit it)
+	AddRoute("cursor-before-file-read", func() {
+		Process(func(ev cursor.FileReadPreEvent) cursor.FileReadPreResult {
+			verdict := fn(FileEditEvent{
+				Agent: AgentCursor, SessionID: ev.ConversationID,
+				FilePath: ev.FilePath, Raw: &ev,
+			})
+			if verdict.Reject {
+				return cursor.Forbid(verdict.Feedback, verdict.Feedback)
+			}
+			return cursor.Permit()
+		})
+	})
+
+	// Windsurf — pre_write_code (blocking via exit code 2)
+	AddRoute("windsurf-pre-write-code", func() {
+		ProcessE(func(ev windsurf.PreWriteCodeEvent) (windsurf.PreWriteCodeResult, error) {
+			changes := make([]FileDiff, len(ev.ToolInfo.Edits))
+			for i, e := range ev.ToolInfo.Edits {
+				changes[i] = FileDiff{Before: e.OldText, After: e.NewText}
+			}
+			verdict := fn(FileEditEvent{
+				Agent: AgentWindsurf, SessionID: ev.TrajectoryID,
+				FilePath: ev.ToolInfo.FilePath, Changes: changes, Raw: &ev,
+			})
+			if verdict.Reject {
+				return windsurf.PreWriteCodeResult{}, errors.New(verdict.Feedback)
+			}
+			return windsurf.AllowWrite(), nil
+		})
+	})
+
+	// Factory Droid — PreToolUse filtered to Write/Edit/MultiEdit (separate route)
+	AddRoute("droid-pre-file-write", func() {
+		Process(func(ev droid.PreToolUseEvent) droid.PreToolUseResult {
+			if ev.ToolName != "Write" && ev.ToolName != "Edit" && ev.ToolName != "MultiEdit" {
+				return droid.ApproveToolUse()
+			}
+			changes := droidWriteChanges(ev.ToolName, ev.ToolInput)
+			verdict := fn(FileEditEvent{
+				Agent: AgentDroid, SessionID: ev.SessionID,
+				FilePath: droidFilePath(ev.ToolInput), Changes: changes, WorkDir: ev.WorkDir,
+				Raw: &ev,
+			})
+			if verdict.Reject {
+				return droid.DenyToolUse(verdict.Feedback)
+			}
+			return droid.ApproveToolUse()
+		})
+	})
+
+	// Gemini CLI — BeforeTool filtered to file-write tools
+	AddRoute("gemini-before-file-tool", func() {
+		Process(func(ev gemini.BeforeToolEvent) gemini.BeforeToolResult {
+			if ev.ToolName != "write_file" && ev.ToolName != "replace_in_file" &&
+				ev.ToolName != "Write" && ev.ToolName != "Edit" {
+				return gemini.ApproveToolCall()
+			}
+			var toolInputFields struct {
+				FilePath string `json:"file_path"`
+				Path     string `json:"path"`
+			}
+			json.Unmarshal(ev.ToolInput, &toolInputFields) //nolint:errcheck
+			filePath := toolInputFields.FilePath
+			if filePath == "" {
+				filePath = toolInputFields.Path
+			}
+			verdict := fn(FileEditEvent{
+				Agent: AgentGemini, SessionID: ev.SessionID,
+				FilePath: filePath, WorkDir: ev.WorkDir, Raw: &ev,
+			})
+			if verdict.Reject {
+				return gemini.DenyToolCall(verdict.Feedback)
+			}
+			return gemini.ApproveToolCall()
+		})
+	})
+}
+
+// =============================================================================
 // BeforePrompt — unified prompt-submit handler
 // =============================================================================
 
