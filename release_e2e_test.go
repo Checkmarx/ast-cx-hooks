@@ -71,9 +71,10 @@ func TestReleaseE2E_OneHandlerAllAgents(t *testing.T) {
 				[]string{`"decision":"deny"`, `"reason":"Blocked: destructive recursive delete."`}, []string{"additionalContext", "Run cx-security remediation."}},
 			{"copilot-cli-pre-tool-use",
 				`{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"bash","tool_input":{"command":"rm -rf /"}}`,
-				// Copilot CLI preToolUse has no additionalContext field per the doc: FLAT deny + reason
-				// only; the unified Context is dropped+logged, NOT folded into permissionDecisionReason.
-				[]string{`"permissionDecision":"deny"`, `"permissionDecisionReason":"Blocked: destructive recursive delete."`}, []string{"hookSpecificOutput", "updatedInput", "Run cx-security remediation."}},
+				// Copilot CLI preToolUse: FLAT deny. Remediation Context is delivered in the
+				// additionalContext field AND folded into permissionDecisionReason — the field the CLI
+				// currently forwards to the agent while it ignores additionalContext (github/copilot-cli#2585).
+				[]string{`"permissionDecision":"deny"`, `"additionalContext"`, "Blocked: destructive recursive delete.", "Run cx-security remediation."}, []string{"hookSpecificOutput", "updatedInput"}},
 		})
 	})
 

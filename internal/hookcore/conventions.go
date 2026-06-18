@@ -113,19 +113,34 @@ func droidDiff(toolName string, input json.RawMessage) []FileDiff {
 	}
 }
 
-// cliDiff handles the GitHub Copilot CLI write tools (best-effort, pending a live
-// payload): edit carries old_string/new_string, create carries content.
+// cliDiff handles the GitHub Copilot CLI write tools. Confirmed against a live
+// payload: edit carries old_str/new_str and create carries file_text; the older
+// VS Code-style content/old_string/new_string keys are kept as a fallback.
 func cliDiff(toolName string, input json.RawMessage) []FileDiff {
 	var v struct {
 		Content   string `json:"content"`
+		FileText  string `json:"file_text"`
 		OldString string `json:"old_string"`
 		NewString string `json:"new_string"`
+		OldStr    string `json:"old_str"`
+		NewStr    string `json:"new_str"`
 	}
 	json.Unmarshal(input, &v) //nolint:errcheck
 	if toolName == "edit" {
-		return []FileDiff{{Before: v.OldString, After: v.NewString}}
+		before, after := v.OldStr, v.NewStr
+		if before == "" {
+			before = v.OldString
+		}
+		if after == "" {
+			after = v.NewString
+		}
+		return []FileDiff{{Before: before, After: after}}
 	}
-	return []FileDiff{{Before: "", After: v.Content}}
+	content := v.FileText
+	if content == "" {
+		content = v.Content
+	}
+	return []FileDiff{{Before: "", After: content}}
 }
 
 var (
@@ -156,10 +171,11 @@ var (
 		FilePathKeys: []string{"filePath"}, Diff: standardDiff,
 	}
 	// CopilotCLITools is the GitHub Copilot CLI convention (lowercase bash/powershell,
-	// no MCP prefix documented, create/edit).
+	// no MCP prefix documented, create/edit). Confirmed against a live payload: the
+	// edited file path is in "path" (file_path kept as a fallback).
 	CopilotCLITools = ToolConvention{
 		ShellTools: []string{"bash", "powershell"}, MCPPrefix: "",
 		WriteTools:   []string{"create", "edit"},
-		FilePathKeys: []string{"file_path"}, Diff: cliDiff,
+		FilePathKeys: []string{"path", "file_path"}, Diff: cliDiff,
 	}
 )

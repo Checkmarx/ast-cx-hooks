@@ -47,6 +47,9 @@ var (
 	geminiRoutes = []string{
 		"gemini-before-agent", "gemini-before-tool", "gemini-before-file-tool", "gemini-after-agent",
 	}
+	copilotCLIRoutes = []string{
+		"copilot-cli-stop", "copilot-cli-pre-tool-use", "copilot-cli-pre-file-write", "copilot-cli-user-prompt-submit",
+	}
 )
 
 // InstallClaude writes Claude Code hook config (~/.claude/settings.json) under home.
@@ -72,6 +75,11 @@ func InstallDroid(home string, cmdFor CmdForFunc) error {
 // InstallGemini writes Gemini CLI hook config (~/.gemini/settings.json) under home.
 func InstallGemini(home string, cmdFor CmdForFunc) error {
 	return install(home, geminiRoutes, cmdFor)
+}
+
+// InstallCopilotCLI writes GitHub Copilot CLI hook config (~/.copilot/hooks/agenthooks.json) under home.
+func InstallCopilotCLI(home string, cmdFor CmdForFunc) error {
+	return install(home, copilotCLIRoutes, cmdFor)
 }
 
 // install groups the given routes by their settings file (from the Catalog) and

@@ -141,20 +141,22 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 			},
 		},
 		{
-			name:  "copilot-cli-pre-file-write blocks but drops context (flat preToolUse)",
+			name:  "copilot-cli-pre-file-write blocks and delivers remediation context via additionalContext + folded reason (flat preToolUse)",
 			route: "copilot-cli-pre-file-write",
 			register: func() {
 				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
 					if e.Agent != agenthooks.AgentCopilotCLI {
 						t.Fatalf("agent: %q", e.Agent)
 					}
-					return agenthooks.RejectEditWithContext("blocked by policy", "should be dropped on copilot-cli")
+					return agenthooks.RejectEditWithContext("blocked by policy", "run the remediation skill then retry")
 				})
 			},
 			stdin: `{"session_id":"s","tool_name":"create","tool_input":{"file_path":"/r/x.py","content":"eval(x)"}}`,
 			// copilot-cli is FLAT: top-level permissionDecision (no hookSpecificOutput wrapper).
-			wantStdout: []string{`"permissionDecision":"deny"`, `blocked by policy`},
-			notStdout:  []string{"additionalContext", "should be dropped on copilot-cli"},
+			// Context is emitted as additionalContext (forward-compat) AND folded into
+			// permissionDecisionReason, which the CLI forwards today (github/copilot-cli#2585).
+			wantStdout: []string{`"permissionDecision":"deny"`, `"additionalContext"`, `blocked by policy`, `run the remediation skill then retry`},
+			notStdout:  []string{"hookSpecificOutput"},
 		},
 		{
 			name:  "cursor-before-file-write blocks a Write via generic preToolUse",

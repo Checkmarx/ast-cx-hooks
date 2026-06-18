@@ -37,6 +37,10 @@ func TestBuilderShapes(t *testing.T) {
 		{"ApproveToolUseWithInput", marshal(t, ApproveToolUseWithInput(json.RawMessage(`{"command":"ls -la"}`))), `{"permissionDecision":"allow","modifiedArgs":{"command":"ls -la"}}`},
 		{"DenyToolUse", marshal(t, DenyToolUse("blocked")), `{"permissionDecision":"deny","permissionDecisionReason":"blocked"}`},
 		{"AskUserAboutTool", marshal(t, AskUserAboutTool("confirm?")), `{"permissionDecision":"ask","permissionDecisionReason":"confirm?"}`},
+		// preToolUse with context — additionalContext field + folded reason (deny/ask)
+		{"ApproveToolUseWithContext", marshal(t, ApproveToolUseWithContext("ok", "ctx")), `{"permissionDecision":"allow","permissionDecisionReason":"ok","additionalContext":"ctx"}`},
+		{"DenyToolUseWithContext", marshal(t, DenyToolUseWithContext("blocked", "remediate")), `{"permissionDecision":"deny","permissionDecisionReason":"blocked\n\nremediate","additionalContext":"remediate"}`},
+		{"AskUserAboutToolWithContext", marshal(t, AskUserAboutToolWithContext("confirm?", "remediate")), `{"permissionDecision":"ask","permissionDecisionReason":"confirm?\n\nremediate","additionalContext":"remediate"}`},
 
 		// postToolUse — modifiedResult + additionalContext
 		{"AcknowledgeToolUse", marshal(t, AcknowledgeToolUse()), `{}`},
