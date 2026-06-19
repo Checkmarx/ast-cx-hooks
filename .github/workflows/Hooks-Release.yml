@@ -8,29 +8,37 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     name: Tag & Publish Go Module
     runs-on: cx-private-ubuntu-x64
+    permissions:
+      contents: write # required to create git tags and GitHub releases
 
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install Go
         uses: actions/setup-go@4d34df0c2316fe8122ab82dc22947d607c0c91f9
         with:
           go-version-file: go.mod
 
-      # 🔑 Validate version (bare X.Y.Z; the 'v' prefix is added by the tag action)
+      # Validate version (bare X.Y.Z; the 'v' prefix is added by the tag action)
       - name: Validate version input
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "❌ Invalid version format: $VERSION"
             echo "Use format: X.Y.Z (e.g. 1.2.3) — do not include a leading 'v'"
