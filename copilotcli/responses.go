@@ -55,6 +55,47 @@ func AskUserAboutTool(reason string) PreToolUseResult {
 	return PreToolUseResult{Decision: "ask", DecisionReason: reason}
 }
 
+// ApproveToolUseWithContext allows the tool call and attaches remediation context
+// via additionalContext. See PreToolUseResult.ExtraContext for the #2585 caveat
+// (the field is currently ignored by Copilot CLI on preToolUse).
+func ApproveToolUseWithContext(note, ctx string) PreToolUseResult {
+	return PreToolUseResult{Decision: "allow", DecisionReason: note, ExtraContext: ctx}
+}
+
+// DenyToolUseWithContext blocks the tool call and delivers remediation context two
+// ways: in additionalContext (forward-compat) and folded into permissionDecisionReason —
+// the field Copilot CLI currently forwards to the agent while it ignores
+// additionalContext on preToolUse (github/copilot-cli#2585).
+func DenyToolUseWithContext(reason, ctx string) PreToolUseResult {
+	return PreToolUseResult{
+		Decision:       "deny",
+		DecisionReason: mergeReasonContext(reason, ctx),
+		ExtraContext:   ctx,
+	}
+}
+
+// AskUserAboutToolWithContext mirrors DenyToolUseWithContext for the ask decision.
+func AskUserAboutToolWithContext(reason, ctx string) PreToolUseResult {
+	return PreToolUseResult{
+		Decision:       "ask",
+		DecisionReason: mergeReasonContext(reason, ctx),
+		ExtraContext:   ctx,
+	}
+}
+
+// mergeReasonContext joins a deny/ask reason with any remediation Context into a
+// single permissionDecisionReason string, so the agent still receives the context
+// while Copilot CLI ignores the dedicated additionalContext field (#2585).
+func mergeReasonContext(reason, ctx string) string {
+	if ctx == "" {
+		return reason
+	}
+	if reason == "" {
+		return ctx
+	}
+	return reason + "\n\n" + ctx
+}
+
 // --- postToolUse responses ---
 
 // AcknowledgeToolUse keeps the original tool result unchanged.

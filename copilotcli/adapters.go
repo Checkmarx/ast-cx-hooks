@@ -45,17 +45,19 @@ func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 }
 
 // preToolDecision maps a unified PreToolUse-style verdict to Copilot CLI's FLAT
-// preToolUse output. The CLI's preToolUse doc defines NO additionalContext field,
-// so the unified Context is dropped+logged (labelled by the firing hook). Used by
-// both PreToolUse gates: the tool-call gate (ToolAdapter) and the pre-file-write
-// gate (FileEditAdapter).
-func preToolDecision(v hookcore.ToolVerdict, hook string) PreToolUseResult {
-	if v.Context != "" {
-		hookcore.LogIgnoredVerdict(hookcore.AgentCopilotCLI, hook, "Context (preToolUse has no additionalContext field)")
-	}
+// preToolUse output. Remediation Context is delivered in the additionalContext
+// field for forward-compatibility AND — because Copilot CLI does not yet honor
+// additionalContext on preToolUse (github/copilot-cli#2585) — also folded into
+// permissionDecisionReason on deny/ask, the field the CLI currently forwards to the
+// agent. Used by both PreToolUse gates: the tool-call gate (ToolAdapter) and the
+// pre-file-write gate (FileEditAdapter).
+func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
 	if v.Permit {
 		if v.RewrittenInput != nil {
 			return ApproveToolUseWithInput(v.RewrittenInput)
+		}
+		if v.Context != "" {
+			return ApproveToolUseWithContext(v.Message, v.Context)
 		}
 		if v.Message != "" {
 			return ApproveToolUseWithNote(v.Message)
@@ -63,7 +65,13 @@ func preToolDecision(v hookcore.ToolVerdict, hook string) PreToolUseResult {
 		return ApproveToolUse()
 	}
 	if v.NeedsConfirm {
+		if v.Context != "" {
+			return AskUserAboutToolWithContext(v.Message, v.Context)
+		}
 		return AskUserAboutTool(v.Message)
+	}
+	if v.Context != "" {
+		return DenyToolUseWithContext(v.Message, v.Context)
 	}
 	return DenyToolUse(v.Message)
 }
@@ -77,7 +85,7 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 				Agent: hookcore.AgentCopilotCLI, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
 				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
 			})
-			return preToolDecision(v, "pre-tool-use")
+			return preToolDecision(v)
 		})
 	}
 }
@@ -98,7 +106,7 @@ func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 				Changes:  hookcore.CopilotCLITools.Changes(ev.ToolName, ev.ToolInput),
 				WorkDir:  ev.WorkDir, Raw: &ev,
 			})
-			return preToolDecision(v, "pre-file-write")
+			return preToolDecision(v)
 		})
 	}
 }

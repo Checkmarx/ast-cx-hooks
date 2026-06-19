@@ -203,7 +203,7 @@ and `~/.copilot/hooks/agenthooks.json`. The VS Code Copilot extension is project
 (`.github/hooks/*.json`) and is set up by hand.
 
 **Embedding installation.** Consumers that wire these hooks into their own CLI can import the
-`install` package directly — `install.InstallClaude/InstallCursor/InstallWindsurf/InstallDroid/InstallGemini(home, cmdFor)`
+`install` package directly — `install.InstallClaude/InstallCursor/InstallWindsurf/InstallDroid/InstallGemini/InstallCopilotCLI(home, cmdFor)`
 plus `install.FormatCommand` and the `install.CmdForFunc` type — to control the command each
 route maps to (e.g. `cx hooks <route>`). Route → settings-file / event-key / encoding is driven by
 the single `agenthooks.Catalog` source of truth.
