@@ -157,7 +157,8 @@ var (
 		FilePathKeys: []string{"file_path"}, Diff: droidDiff,
 	}
 	// GeminiTools is the Gemini CLI convention (run_shell_command + single-underscore
-	// mcp_ + write_file/replace). Gemini reports no before/after diffs.
+	// mcp_ + write_file/replace). FileChanges in the gemini package rebuilds diffs
+	// from tool_input in the adapter; Diff stays nil here.
 	GeminiTools = ToolConvention{
 		ShellTools: []string{"run_shell_command"}, MCPPrefix: "mcp_",
 		WriteTools:   []string{"write_file", "replace"},

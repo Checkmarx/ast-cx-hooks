@@ -18,6 +18,25 @@ func DenyToolCall(reason string) BeforeToolResult {
 	return BeforeToolResult{ResultBase: ResultBase{Decision: "deny", Reason: reason}}
 }
 
+// DenyToolCallWithContext blocks the tool call and delivers remediation context by
+// folding it into reason. Gemini's BeforeTool wire format has no additionalContext
+// field — only reason is forwarded to the model.
+func DenyToolCallWithContext(reason, ctx string) BeforeToolResult {
+	return DenyToolCall(mergeReasonContext(reason, ctx))
+}
+
+// mergeReasonContext joins a deny reason with remediation context when the hook
+// protocol has no additionalContext channel on BeforeTool.
+func mergeReasonContext(reason, ctx string) string {
+	if ctx == "" {
+		return reason
+	}
+	if reason == "" {
+		return ctx
+	}
+	return reason + "\n\n" + ctx
+}
+
 // ApproveToolCallWithInput allows the tool call but rewrites its input before execution.
 // Gemini merges the provided tool_input with the model's arguments.
 func ApproveToolCallWithInput(updated json.RawMessage) BeforeToolResult {
