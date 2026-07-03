@@ -1,6 +1,5 @@
 name: Checkmarx One Scan
 on:
-  workflow_dispatch:
   pull_request:
   push:
     branches:
@@ -8,15 +7,19 @@ on:
   schedule:
     - cron: '00 7 * * *' # Every day at 07:00
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   cx-scan:
     name: Checkmarx One Scan
     runs-on: cx-public-ubuntu-x64
     steps:
       - name: Checkout
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
       - name: Checkmarx One CLI Action
-        uses: checkmarx/ast-github-action@ef93013c95adc60160bc22060875e90800d3ecfc #v.2.3.19
+        uses: checkmarx/ast-github-action@ef93013c95adc60160bc22060875e90800d3ecfc
         with:
           base_uri: ${{ secrets.AST_RND_SCANS_BASE_URI }}
           cx_tenant: ${{ secrets.AST_RND_SCANS_TENANT }}
