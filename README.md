@@ -304,3 +304,19 @@ These hooks gate agent actions, so failure behavior matters:
   rather than allowing, and logs why.
 - **`install` is non-destructive.** It merges into existing settings (preserving your other
   hooks), aborts rather than overwriting a file it cannot parse, and writes a `.bak` first.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, module architecture, and
+contribution guidelines. Maintainers are listed in [MAINTAINERS.md](MAINTAINERS.md) and code
+ownership in [CODEOWNERS.txt](CODEOWNERS.txt).
+
+## License
+
+Apache 2.0 — see [LICENSE.txt](LICENSE.txt) for details.
+
+---
+
+Website: [Checkmarx](https://checkmarx.com).
+
+© 2026 Checkmarx Ltd. All Rights Reserved.
