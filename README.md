@@ -1,4 +1,11 @@
-# cxagenthooks
+# Checkmarx Agent Hooks
+
+[![CI](https://github.com/CheckmarxDev/ast-cx-hooks/actions/workflows/ci.yml/badge.svg)](https://github.com/CheckmarxDev/ast-cx-hooks/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/CheckmarxDev/ast-cx-hooks.svg)](https://pkg.go.dev/github.com/CheckmarxDev/ast-cx-hooks)
+[![Go Report Card](https://goreportcard.com/badge/github.com/CheckmarxDev/ast-cx-hooks)](https://goreportcard.com/report/github.com/CheckmarxDev/ast-cx-hooks)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/CheckmarxDev/ast-cx-hooks)](go.mod)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE.txt)
+[![Release](https://img.shields.io/github/v/release/CheckmarxDev/ast-cx-hooks)](https://github.com/CheckmarxDev/ast-cx-hooks/releases)
 
 One hook codebase for every AI coding agent. Write a single handler, compile one
 binary, and it runs across **Claude Code · Cursor · Windsurf Cascade · Factory Droid ·
@@ -305,11 +312,24 @@ These hooks gate agent actions, so failure behavior matters:
 - **`install` is non-destructive.** It merges into existing settings (preserving your other
   hooks), aborts rather than overwriting a file it cannot parse, and writes a `.bak` first.
 
+## Documentation
+
+- [Usage Guide](docs/usage.md) — per-agent payloads, routes, and testing hooks locally.
+- [Troubleshooting](docs/troubleshooting.md) — common build, install, and runtime issues.
+- [Changelog](CHANGELOG.md) — release history.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, module architecture, and
-contribution guidelines. Maintainers are listed in [MAINTAINERS.md](MAINTAINERS.md) and code
-ownership in [CODEOWNERS.txt](CODEOWNERS.txt).
+contribution guidelines. Please also read our [Code of Conduct](docs/CODE_OF_CONDUCT.md).
+Maintainers are listed in [MAINTAINERS.md](MAINTAINERS.md) and code ownership in
+[CODEOWNERS.txt](CODEOWNERS.txt).
+
+## Security
+
+To report a vulnerability, follow the process in [SECURITY.md](SECURITY.md) — please do not
+open a public issue for security reports. For the library's runtime failure behavior, see the
+[Security model](#security-model) above.
 
 ## License
 
