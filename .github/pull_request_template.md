@@ -12,14 +12,16 @@ Describe what changed and why.
 
 ## Validation
 
+- [ ] I ran the full test suite: `go test ./... -race -count=1`
 - [ ] I verified docs/links impacted by this change
-- [ ] I validated `authentication` and `examples/{client}-mcp.json` still contains only placeholders (no real secrets)
-- [ ] I have successfully tested and verified the relevant workflow in at least one supported AI client:
-    - [ ] Cursor
-    - [ ] Claude
-    - [ ] Windsurf
-    - [ ] GitHub Copilot
-    - [ ] Kiro
+- [ ] I confirm no secrets or sensitive data are included (code, tests, or fixtures)
+- [ ] I tested and verified the relevant hook behavior in at least one supported AI CLI tool:
+    - [ ] Claude Code CLI
+    - [ ] Cursor CLI
+    - [ ] Gemini CLI
+    - [ ] GitHub Copilot CLI
+    - [ ] Codex CLI
+
 ## DCO
 
 - [ ] I signed off all commits (`git commit -s`)

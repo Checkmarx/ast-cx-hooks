@@ -1,6 +1,6 @@
-# Code ownership rules
+# CODEOWNERS
+# Each line defines a file pattern and the owner(s) responsible for reviewing changes.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
-# Each line is a file pattern followed by one or more owners
-
-# Specify the default owners for the entire repository
-*       @cx-anurag-dalke @cx-amol-mane @cx-kedar-bhujade @cx-hitesh-madgulkar @cx-rahul-pidde
+# All files owned by Checkmarx One Integrations Team
+* @checkmarx/sg-rnd-eng-sypher
