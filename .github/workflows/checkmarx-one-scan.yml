@@ -3,7 +3,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
   schedule:
     - cron: '00 7 * * *' # Every day at 07:00
 
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   cx-scan:
     name: Checkmarx One Scan
-    runs-on: cx-private-ubuntu-x64
+    runs-on: cx-public-ubuntu-x64
     steps:
       - name: Checkout
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v6
