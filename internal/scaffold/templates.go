@@ -5,7 +5,7 @@ const tmplMainGo = `package main
 import (
 	"strings"
 
-	hooks "github.com/CheckmarxDev/ast-cx-hooks"
+	hooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 func main() {
@@ -60,7 +60,7 @@ One hooks binary for Claude Code, Cursor, Windsurf Cascade, Factory Droid, and G
 go mod init github.com/your-org/your-hooks
 
 # 2. Add the dependency
-go get github.com/CheckmarxDev/ast-cx-hooks@latest
+go get github.com/Checkmarx/ast-cx-hooks@latest
 go mod tidy
 
 # 3. Build your binary

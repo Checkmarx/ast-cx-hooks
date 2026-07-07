@@ -1,6 +1,6 @@
 package agenthooks
 
-import "github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+import "github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 
 // The unified hook vocabulary lives in internal/hookcore (a leaf package the
 // platform packages can also import without a cycle) and is re-exported here so

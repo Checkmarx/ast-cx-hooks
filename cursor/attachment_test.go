@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/cursor"
+	"github.com/Checkmarx/ast-cx-hooks/cursor"
 )
 
 // TestAttachmentFilePathSnakeCase guards the casing fix: Cursor sends attachment

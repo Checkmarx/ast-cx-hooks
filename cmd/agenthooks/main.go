@@ -15,8 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/scaffold"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
+	"github.com/Checkmarx/ast-cx-hooks/internal/scaffold"
 )
 
 func main() {

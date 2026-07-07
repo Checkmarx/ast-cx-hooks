@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/codec"
+	"github.com/Checkmarx/ast-cx-hooks/internal/codec"
 )
 
 // Run reads one JSON event from stdin, passes it to handler, and writes the

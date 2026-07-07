@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks"
+	"github.com/Checkmarx/ast-cx-hooks"
 )
 
 func TestAddRouteAndDispatch(t *testing.T) {

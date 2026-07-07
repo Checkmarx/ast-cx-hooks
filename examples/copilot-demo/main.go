@@ -16,7 +16,7 @@ package main
 import (
 	"strings"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 func main() {

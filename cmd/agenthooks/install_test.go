@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 // TestWriteHookEntryShapes pins the on-disk JSON shape each HookStyle produces.

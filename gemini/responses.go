@@ -3,7 +3,7 @@ package gemini
 import (
 	"encoding/json"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 )
 
 // --- BeforeTool responses ---

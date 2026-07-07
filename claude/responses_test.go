@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/claude"
+	"github.com/Checkmarx/ast-cx-hooks/claude"
 )
 
 func TestStopResponses(t *testing.T) {

@@ -55,7 +55,7 @@ func Run(args []string) {
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. cd", dir)
 	fmt.Println("  2. go mod init <your-module-path>")
-	fmt.Println("  3. go get github.com/CheckmarxDev/ast-cx-hooks@latest")
+	fmt.Println("  3. go get github.com/Checkmarx/ast-cx-hooks@latest")
 	fmt.Println("  4. go mod tidy")
 	fmt.Println("  5. go build -o my-hooks .")
 	fmt.Println("  6. agenthooks install ./my-hooks")

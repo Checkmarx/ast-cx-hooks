@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/droid"
+	"github.com/Checkmarx/ast-cx-hooks/droid"
 )
 
 func TestSubagentStopResponses(t *testing.T) {

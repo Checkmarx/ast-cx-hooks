@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/windsurf"
+	"github.com/Checkmarx/ast-cx-hooks/windsurf"
 )
 
 // TestEventBaseModelName verifies the model_name common field parses on every payload.

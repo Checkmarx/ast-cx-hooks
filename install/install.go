@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 // CmdForFunc returns the shell command a given route should run. Consumers control

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 // TestPlatformAdaptersEndToEnd drives Droid, Gemini, and Windsurf adapters through

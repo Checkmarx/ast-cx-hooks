@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/claude"
+	"github.com/Checkmarx/ast-cx-hooks/claude"
 )
 
 // TestPostToolUseEventToolResponse verifies the modeled tool_response key captures

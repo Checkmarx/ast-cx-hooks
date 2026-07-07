@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 )
 
 // This file owns the translation between Copilot CLI wire types and the unified

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 )
 
 // This file owns the translation between Cursor's wire types and the unified

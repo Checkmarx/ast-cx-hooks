@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/gemini"
+	"github.com/Checkmarx/ast-cx-hooks/gemini"
 )
 
 // TestRetryWithFeedbackUsesDeny guards the retry-semantics fix: Gemini triggers a

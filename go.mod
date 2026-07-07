@@ -1,3 +1,3 @@
-module github.com/CheckmarxDev/ast-cx-hooks
+module github.com/Checkmarx/ast-cx-hooks
 
 go 1.23
