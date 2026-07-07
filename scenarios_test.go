@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 // dispatchToolCall runs the claude-pre-tool-use route with an optional scenario

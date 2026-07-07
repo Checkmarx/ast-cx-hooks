@@ -1,6 +1,6 @@
 # Usage Guide
 
-This guide covers how to use **cxagenthooks** (`github.com/CheckmarxDev/ast-cx-hooks`) —
+This guide covers how to use **cxagenthooks** (`github.com/Checkmarx/ast-cx-hooks`) —
 one hook codebase that runs across every supported AI coding agent. You write a single
 Go handler, compile one binary, and the library translates the wire format (JSON schema,
 response shape, blocking semantics) for each platform.
@@ -73,19 +73,19 @@ The fastest path is the `agenthooks` CLI, which scaffolds, builds, and installs 
 
 ```bash
 # 1. Scaffold a starter project (main.go + policy.json + README + .gitignore)
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks
+go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks
 cd ./my-hooks
 
 # 2. Initialize your module and pull the dependency
 go mod init github.com/your-org/my-hooks
-go get github.com/CheckmarxDev/ast-cx-hooks@latest
+go get github.com/Checkmarx/ast-cx-hooks@latest
 go mod tidy
 
 # 3. Build your hook binary
 go build -o my-hooks .
 
 # 4. Write the correct hook config — in each agent's own shape — into every settings file
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./my-hooks
+go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks install ./my-hooks
 ```
 
 A minimal `main.go` looks like this:
@@ -96,7 +96,7 @@ package main
 import (
     "strings"
 
-    "github.com/CheckmarxDev/ast-cx-hooks"
+    "github.com/Checkmarx/ast-cx-hooks"
 )
 
 func main() {
@@ -304,8 +304,8 @@ platform package:
 
 ```go
 import (
-    "github.com/CheckmarxDev/ast-cx-hooks"
-    "github.com/CheckmarxDev/ast-cx-hooks/claude"
+    "github.com/Checkmarx/ast-cx-hooks"
+    "github.com/Checkmarx/ast-cx-hooks/claude"
 )
 
 agenthooks.AddRoute("claude-pre-tool-use", func() {
@@ -330,7 +330,7 @@ an error to block via exit code `2`.
 
 ## CLI Reference
 
-Run the CLI with `go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks <command>`
+Run the CLI with `go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks <command>`
 (or build it once and put `agenthooks` on your `PATH`).
 
 ### `init`

@@ -9,7 +9,7 @@
 //
 //	package main
 //
-//	import "github.com/CheckmarxDev/ast-cx-hooks"
+//	import "github.com/Checkmarx/ast-cx-hooks"
 //
 //	func main() {
 //	    agenthooks.WhenAgentIdle(func(e agenthooks.AgentIdleEvent) agenthooks.IdleVerdict {
@@ -35,7 +35,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 )
 
 // RouteFunc is the type for handlers registered via AddRoute.

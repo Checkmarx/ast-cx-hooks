@@ -1,11 +1,11 @@
 # Checkmarx Agent Hooks
 
-[![CI](https://github.com/CheckmarxDev/ast-cx-hooks/actions/workflows/ci.yml/badge.svg)](https://github.com/CheckmarxDev/ast-cx-hooks/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/CheckmarxDev/ast-cx-hooks.svg)](https://pkg.go.dev/github.com/CheckmarxDev/ast-cx-hooks)
-[![Go Report Card](https://goreportcard.com/badge/github.com/CheckmarxDev/ast-cx-hooks)](https://goreportcard.com/report/github.com/CheckmarxDev/ast-cx-hooks)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/CheckmarxDev/ast-cx-hooks)](go.mod)
+[![CI](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/ci.yml/badge.svg)](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Checkmarx/ast-cx-hooks.svg)](https://pkg.go.dev/github.com/Checkmarx/ast-cx-hooks)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Checkmarx/ast-cx-hooks)](https://goreportcard.com/report/github.com/Checkmarx/ast-cx-hooks)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Checkmarx/ast-cx-hooks)](go.mod)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE.txt)
-[![Release](https://img.shields.io/github/v/release/CheckmarxDev/ast-cx-hooks)](https://github.com/CheckmarxDev/ast-cx-hooks/releases)
+[![Release](https://img.shields.io/github/v/release/Checkmarx/ast-cx-hooks)](https://github.com/Checkmarx/ast-cx-hooks/releases)
 
 One hook codebase for every AI coding agent. Write a single handler, compile one
 binary, and it runs across **Claude Code · Cursor · Windsurf Cascade · Factory Droid ·
@@ -17,7 +17,7 @@ package main
 import (
     "strings"
 
-    "github.com/CheckmarxDev/ast-cx-hooks"
+    "github.com/Checkmarx/ast-cx-hooks"
 )
 
 func main() {
@@ -37,7 +37,7 @@ wire format (JSON schema, response shape, blocking semantics) per platform.
 ## Installation
 
 ```bash
-go get github.com/CheckmarxDev/ast-cx-hooks
+go get github.com/Checkmarx/ast-cx-hooks
 ```
 
 Zero dependencies (standard library only).
@@ -194,14 +194,14 @@ Resolution order: a matching named scenario → the registered default → a fal
 
 ```bash
 # Scaffold a starter hooks project (main.go + policy.json + .gitignore)
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks
+go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks init --dir ./my-hooks
 
 # Build for the current platform, or cross-compile to dist/ (macOS/Linux/Windows × amd64/arm64)
 go build -o myhook .
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks build
+go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks build
 
 # Write the correct hook config — in each agent's own shape — into every settings file
-go run github.com/CheckmarxDev/ast-cx-hooks/cmd/agenthooks install ./myhook
+go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks install ./myhook
 ```
 
 `install` writes to `~/.claude/settings.json`, `~/.cursor/hooks.json`,
@@ -221,8 +221,8 @@ Need raw, per-platform event data? Use `AddRoute` with a platform package:
 
 ```go
 import (
-    "github.com/CheckmarxDev/ast-cx-hooks"
-    "github.com/CheckmarxDev/ast-cx-hooks/claude"
+    "github.com/Checkmarx/ast-cx-hooks"
+    "github.com/Checkmarx/ast-cx-hooks/claude"
 )
 
 agenthooks.AddRoute("claude-pre-tool-use", func() {
@@ -270,7 +270,7 @@ func TestDenyDangerousCommands(t *testing.T) {
 ## Architecture
 
 ```text
-github.com/CheckmarxDev/ast-cx-hooks
+github.com/Checkmarx/ast-cx-hooks
 ├── agenthooks.go        # Core: AddRoute, Dispatch, Process/ProcessE, RouteNames
 ├── unified.go           # The 8 unified hooks → thin registry over platform adapters
 ├── registry.go          # Generic registerAdapters wiring

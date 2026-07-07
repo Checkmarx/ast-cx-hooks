@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/copilot"
+	"github.com/Checkmarx/ast-cx-hooks/copilot"
 )
 
 func TestStopResponses(t *testing.T) {

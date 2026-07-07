@@ -1,7 +1,7 @@
 package gemini
 
 import (
-	"github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 )
 
 // This file owns the translation between Gemini's wire types and the unified

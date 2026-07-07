@@ -72,8 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rule (`AST-143344`, #3).
 - Zero runtime dependencies (standard library only).
 
-[Unreleased]: https://github.com/CheckmarxDev/ast-cx-hooks/compare/v1.0.3...HEAD
-[1.0.3]: https://github.com/CheckmarxDev/ast-cx-hooks/compare/v1.0.2...v1.0.3
-[1.0.2]: https://github.com/CheckmarxDev/ast-cx-hooks/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/CheckmarxDev/ast-cx-hooks/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/CheckmarxDev/ast-cx-hooks/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Checkmarx/ast-cx-hooks/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/Checkmarx/ast-cx-hooks/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/Checkmarx/ast-cx-hooks/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/Checkmarx/ast-cx-hooks/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/Checkmarx/ast-cx-hooks/releases/tag/v1.0.0

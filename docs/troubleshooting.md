@@ -45,11 +45,11 @@ echo "exit: $?"
 ## Build & module issues
 
 **`go get` fails / wrong module path.** The import path is
-`github.com/CheckmarxDev/ast-cx-hooks`. Make sure your project has a module first:
+`github.com/Checkmarx/ast-cx-hooks`. Make sure your project has a module first:
 
 ```bash
 go mod init github.com/your-org/my-hooks
-go get github.com/CheckmarxDev/ast-cx-hooks@latest
+go get github.com/Checkmarx/ast-cx-hooks@latest
 go mod tidy
 ```
 

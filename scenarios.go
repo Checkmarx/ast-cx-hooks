@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/CheckmarxDev/ast-cx-hooks/claude"
-	"github.com/CheckmarxDev/ast-cx-hooks/copilot"
-	"github.com/CheckmarxDev/ast-cx-hooks/copilotcli"
-	"github.com/CheckmarxDev/ast-cx-hooks/cursor"
-	"github.com/CheckmarxDev/ast-cx-hooks/droid"
-	"github.com/CheckmarxDev/ast-cx-hooks/gemini"
-	"github.com/CheckmarxDev/ast-cx-hooks/windsurf"
+	"github.com/Checkmarx/ast-cx-hooks/claude"
+	"github.com/Checkmarx/ast-cx-hooks/copilot"
+	"github.com/Checkmarx/ast-cx-hooks/copilotcli"
+	"github.com/Checkmarx/ast-cx-hooks/cursor"
+	"github.com/Checkmarx/ast-cx-hooks/droid"
+	"github.com/Checkmarx/ast-cx-hooks/gemini"
+	"github.com/Checkmarx/ast-cx-hooks/windsurf"
 )
 
 // Scenarios let several independent implementations share one hook. Each is

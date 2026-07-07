@@ -3,7 +3,7 @@ package agenthooks_test
 import (
 	"testing"
 
-	agenthooks "github.com/CheckmarxDev/ast-cx-hooks"
+	agenthooks "github.com/Checkmarx/ast-cx-hooks"
 )
 
 // registerAllUnifiedHandlers wires every unified handler with no-op callbacks so

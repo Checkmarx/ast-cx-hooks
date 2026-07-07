@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CheckmarxDev/ast-cx-hooks"
+	"github.com/Checkmarx/ast-cx-hooks"
 )
 
 // TestCopilotCLIRoutesEndToEnd drives Copilot-CLI-shaped stdin payloads through

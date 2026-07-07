@@ -1,6 +1,6 @@
 package droid
 
-import "github.com/CheckmarxDev/ast-cx-hooks/internal/hookcore"
+import "github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
 
 // This file owns the translation between Factory Droid's wire types and the
 // unified hookcore vocabulary. The root agenthooks package wires these adapters
