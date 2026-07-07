@@ -244,7 +244,7 @@ func runBuild() error {
 		}
 		out := filepath.Join(outDir, name)
 
-		cmd := exec.Command("go", "build", "-o", out, pkg)
+		cmd := exec.Command("go", "build", "-o", out, "--", pkg)
 		cmd.Env = append(os.Environ(),
 			"GOOS="+t.goos,
 			"GOARCH="+t.goarch,
