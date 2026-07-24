@@ -105,9 +105,21 @@ func TestToolConventionChanges(t *testing.T) {
 	if d := DroidTools.Changes("ApplyPatch", json.RawMessage(`{"diff":"fallback"}`)); d[0].After != "fallback" {
 		t.Errorf("droid applypatch diff fallback: %+v", d)
 	}
-	// cliDiff: lowercase edit -> old/new
-	if d := CopilotCLITools.Changes("edit", json.RawMessage(`{"old_string":"x","new_string":"y"}`)); d[0].Before != "x" || d[0].After != "y" {
-		t.Errorf("cli edit diff: %+v", d)
+	// cliDiff: native Copilot CLI payload uses old_str/new_str (not old_string/new_string)
+	if d := CopilotCLITools.Changes("edit", json.RawMessage(`{"old_str":"A","new_str":"B"}`)); d[0].Before != "A" || d[0].After != "B" {
+		t.Errorf("cli edit diff old_str/new_str: %+v", d)
+	}
+	// cliDiff: old_str present but empty must NOT fall back to old_string —
+	// empty string is a valid replacement target, not a missing key.
+	if d := CopilotCLITools.Changes("edit", json.RawMessage(`{"old_str":"","new_str":"injected","old_string":"original","new_string":"ignored"}`)); d[0].Before != "" || d[0].After != "injected" {
+		t.Errorf("cli edit diff: empty old_str must not fall back to old_string: %+v", d)
+	}
+	// cliDiff: create uses file_text; falls back to content when file_text is absent
+	if d := CopilotCLITools.Changes("create", json.RawMessage(`{"file_text":"newfile"}`)); d[0].Before != "" || d[0].After != "newfile" {
+		t.Errorf("cli create diff file_text: %+v", d)
+	}
+	if d := CopilotCLITools.Changes("create", json.RawMessage(`{"content":"fallback"}`)); d[0].Before != "" || d[0].After != "fallback" {
+		t.Errorf("cli create diff content fallback: %+v", d)
 	}
 	// gemini: no diff
 	if d := GeminiTools.Changes("write_file", json.RawMessage(`{"content":"z"}`)); d != nil {

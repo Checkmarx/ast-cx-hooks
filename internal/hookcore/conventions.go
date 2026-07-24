@@ -114,33 +114,39 @@ func droidDiff(toolName string, input json.RawMessage) []FileDiff {
 }
 
 // cliDiff handles the GitHub Copilot CLI write tools. Confirmed against a live
-// payload: edit carries old_str/new_str and create carries file_text; the older
-// VS Code-style content/old_string/new_string keys are kept as a fallback.
+// payload: edit carries old_str/new_str and create carries file_text; content
+// is kept as a fallback for both.
+//
+// Pointer fields are used so that a key absent from JSON (nil) is distinguished
+// from a key present with an empty-string value (""). A zero-value string check
+// would conflate the two and silently skip the primary key even when it is
+// legitimately empty — causing ProposedContent to treat the edit as a full-file
+// write of only new_str, which breaks delta detection for the ASCA guardrail.
 func cliDiff(toolName string, input json.RawMessage) []FileDiff {
 	var v struct {
-		Content   string `json:"content"`
-		FileText  string `json:"file_text"`
-		OldString string `json:"old_string"`
-		NewString string `json:"new_string"`
-		OldStr    string `json:"old_str"`
-		NewStr    string `json:"new_str"`
+		Content  *string `json:"content"`
+		FileText *string `json:"file_text"`
+		OldStr   *string `json:"old_str"`
+		NewStr   *string `json:"new_str"`
 	}
 	json.Unmarshal(input, &v) //nolint:errcheck
 	if toolName == "edit" {
-		before, after := v.OldStr, v.NewStr
-		if before == "" {
-			before = v.OldString
-		}
-		if after == "" {
-			after = v.NewString
-		}
-		return []FileDiff{{Before: before, After: after}}
+		return []FileDiff{{Before: ptrOr(v.OldStr, v.Content), After: ptrOr(v.NewStr, v.Content)}}
 	}
-	content := v.FileText
-	if content == "" {
-		content = v.Content
+
+	return []FileDiff{{Before: "", After: ptrOr(v.FileText, v.Content)}}
+}
+
+// ptrOr returns the dereferenced value of primary when it is non-nil,
+// then secondary when non-nil, and "" otherwise.
+func ptrOr(primary, secondary *string) string {
+	if primary != nil {
+		return *primary
 	}
-	return []FileDiff{{Before: "", After: content}}
+	if secondary != nil {
+		return *secondary
+	}
+	return ""
 }
 
 var (
