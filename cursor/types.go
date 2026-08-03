@@ -39,7 +39,7 @@ type ShellPostEvent struct {
 	EventBase
 	Command  string `json:"command"`
 	Output   string `json:"output"`
-	Duration int64  `json:"duration"` // milliseconds
+	Duration Milliseconds `json:"duration"` // milliseconds
 	Sandbox  bool   `json:"sandbox"`  // command ran in a sandboxed environment
 }
 
@@ -68,7 +68,7 @@ type MCPPostEvent struct {
 	ToolName   string `json:"tool_name"`
 	ToolInput  string `json:"tool_input"`  // JSON string
 	ResultJSON string `json:"result_json"` // JSON string
-	Duration   int64  `json:"duration"`    // milliseconds
+	Duration   Milliseconds `json:"duration"` // milliseconds
 }
 
 // MCPPostResult is the response type for afterMCPExecution hooks (unused).
@@ -163,7 +163,7 @@ type SessionEndEvent struct {
 	EventBase
 	SessionID         string `json:"session_id"`
 	Reason            string `json:"reason"` // "completed", "aborted", "error", "window_close", "user_close"
-	DurationMS        int64  `json:"duration_ms"`
+	DurationMS        Milliseconds `json:"duration_ms"`
 	IsBackgroundAgent bool   `json:"is_background_agent"`
 	FinalStatus       string `json:"final_status"`
 	ErrorMessage      string `json:"error_message,omitempty"`
@@ -209,9 +209,17 @@ type ToolPreEvent struct {
 // It mirrors PermissionResult ("ask" is accepted but not enforced by Cursor)
 // and adds UpdatedInput, which rewrites the tool input before execution.
 type ToolPreResult struct {
-	Permission   string          `json:"permission"`              // "allow", "deny", or "ask"
-	UserNote     string          `json:"user_message,omitempty"`  // shown in client UI
-	AgentNote    string          `json:"agent_message,omitempty"` // sent to the agent
+	Permission string `json:"permission"`              // "allow", "deny", or "ask"
+	UserNote   string `json:"user_message,omitempty"`  // shown in client UI
+	AgentNote  string `json:"agent_message,omitempty"` // carried by the agent.v1 proto
+
+	// Context is injected into the agent's context window on a deny. Cursor's CLI
+	// preToolUse handler consumes only user_message and additional_context — it never
+	// reads agent_message — so remediation instructions MUST be delivered here or the
+	// agent never sees them. Set it alongside AgentNote: the proto carries both, and
+	// different Cursor surfaces read different fields.
+	Context string `json:"additional_context,omitempty"`
+
 	UpdatedInput json.RawMessage `json:"updated_input,omitempty"` // rewritten tool input
 }
 
@@ -223,7 +231,7 @@ type ToolPostEvent struct {
 	ToolOutput string          `json:"tool_output"` // JSON-stringified tool output
 	ToolUseID  string          `json:"tool_use_id"`
 	WorkDir    string          `json:"cwd"`
-	Duration   int64           `json:"duration"` // milliseconds
+	Duration   Milliseconds    `json:"duration"` // milliseconds
 	ToolModel  string          `json:"model"`
 }
 
@@ -242,7 +250,7 @@ type ToolFailureEvent struct {
 	WorkDir      string          `json:"cwd"`
 	ErrorMessage string          `json:"error_message"`
 	FailureType  string          `json:"failure_type"` // "error", "timeout", "permission_denied"
-	Duration     int64           `json:"duration"`     // milliseconds
+	Duration     Milliseconds    `json:"duration"` // milliseconds
 	IsInterrupt  bool            `json:"is_interrupt"`
 }
 
@@ -294,7 +302,7 @@ type SubagentStopEvent struct {
 	Task                string   `json:"task"`
 	Description         string   `json:"description"`
 	Summary             string   `json:"summary"`
-	DurationMS          int64    `json:"duration_ms"`
+	DurationMS          Milliseconds `json:"duration_ms"`
 	MessageCount        int      `json:"message_count"`
 	ToolCallCount       int      `json:"tool_call_count"`
 	LoopCount           int      `json:"loop_count"`
@@ -322,7 +330,7 @@ type AgentResponseResult struct{}
 type AgentThoughtEvent struct {
 	EventBase
 	Text       string `json:"text"`
-	DurationMS int64  `json:"duration_ms"`
+	DurationMS Milliseconds `json:"duration_ms"`
 }
 
 // AgentThoughtResult is the response type for afterAgentThought hooks (observational only).

@@ -35,7 +35,8 @@ var (
 	}
 	cursorRoutes = []string{
 		"cursor-stop", "cursor-before-shell", "cursor-before-mcp",
-		"cursor-before-file-read", "cursor-after-file-edit", "cursor-before-submit-prompt",
+		"cursor-before-file-write", "cursor-before-file-read", "cursor-after-file-edit",
+		"cursor-before-submit-prompt",
 	}
 	windsurfRoutes = []string{
 		"windsurf-pre-run-command", "windsurf-pre-mcp-tool-use", "windsurf-pre-user-prompt",

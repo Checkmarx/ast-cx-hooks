@@ -113,6 +113,30 @@ func droidDiff(toolName string, input json.RawMessage) []FileDiff {
 	}
 }
 
+// cursorDiff handles Cursor Agent write tools. Cursor IDE preToolUse payloads have
+// historically used file_path + content; the Cursor CLI / Composer agent tools emit
+// path + contents for Write and path + old_string/new_string for StrReplace and
+// EditNotebook. All keys are accepted so the same cx hooks gate works in both.
+func cursorDiff(toolName string, input json.RawMessage) []FileDiff {
+	var v struct {
+		Content   string `json:"content"`
+		Contents  string `json:"contents"`
+		OldString string `json:"old_string"`
+		NewString string `json:"new_string"`
+	}
+	json.Unmarshal(input, &v) //nolint:errcheck
+	switch toolName {
+	case "Edit", "StrReplace", "EditNotebook", "MultiEdit":
+		return []FileDiff{{Before: v.OldString, After: v.NewString}}
+	default:
+		content := v.Content
+		if content == "" {
+			content = v.Contents
+		}
+		return []FileDiff{{Before: "", After: content}}
+	}
+}
+
 // cliDiff handles the GitHub Copilot CLI write tools. Confirmed against a live
 // payload: edit carries old_str/new_str and create carries file_text; content
 // is kept as a fallback for both.
@@ -183,5 +207,12 @@ var (
 		ShellTools: []string{"bash", "powershell"}, MCPPrefix: "",
 		WriteTools:   []string{"create", "edit"},
 		FilePathKeys: []string{"path", "file_path"}, Diff: cliDiff,
+	}
+	// CursorTools is the Cursor Agent convention (Write/StrReplace/EditNotebook for
+	// file mutations). tool_input may use file_path or path, and content or contents.
+	CursorTools = ToolConvention{
+		WriteTools:   []string{"Write", "Edit", "StrReplace", "EditNotebook"},
+		FilePathKeys: []string{"file_path", "path"},
+		Diff:         cursorDiff,
 	}
 )

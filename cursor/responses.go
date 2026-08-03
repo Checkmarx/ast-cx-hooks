@@ -1,6 +1,9 @@
 package cursor
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // --- Permission helpers ---
 
@@ -17,6 +20,19 @@ func PermitWithNote(note string) PermissionResult {
 // Forbid denies the action and sends messages to the user and agent.
 func Forbid(userMsg, agentMsg string) PermissionResult {
 	return PermissionResult{Permission: "deny", UserNote: userMsg, AgentNote: agentMsg}
+}
+
+// ForbidWithAgentContext denies with a short user-facing reason and remediation in agent_message.
+func ForbidWithAgentContext(userMsg, agentMsg string) PermissionResult {
+	return Forbid(userMsg, agentMsg)
+}
+
+// AgentMessageWithContext appends remediation guidance to the agent-facing message.
+func AgentMessageWithContext(message, context string) string {
+	if context == "" {
+		return message
+	}
+	return strings.TrimSpace(message + "\n\n" + context)
 }
 
 // RequestConfirmation asks the user to approve before the action proceeds.

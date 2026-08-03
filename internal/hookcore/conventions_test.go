@@ -59,6 +59,8 @@ func TestToolConventionIsWrite(t *testing.T) {
 		{GeminiTools, "write_file", true}, {GeminiTools, "replace", true}, {GeminiTools, "replace_in_file", false},
 		{CopilotTools, "createFile", true}, {CopilotTools, "editFiles", true}, {CopilotTools, "Write", false},
 		{CopilotCLITools, "create", true}, {CopilotCLITools, "edit", true}, {CopilotCLITools, "Create", false},
+		{CursorTools, "Write", true}, {CursorTools, "Edit", true}, {CursorTools, "StrReplace", true},
+		{CursorTools, "EditNotebook", true}, {CursorTools, "Read", false},
 	}
 	for _, tc := range cases {
 		if got := tc.conv.IsWrite(tc.tool); got != tc.write {
@@ -84,6 +86,12 @@ func TestToolConventionFilePath(t *testing.T) {
 	}
 	if got := GeminiTools.FilePath(json.RawMessage(`{"file_path":"/d.py","path":"/ignored"}`)); got != "/d.py" {
 		t.Errorf("gemini must prefer file_path over path: %q", got)
+	}
+	if got := CursorTools.FilePath(json.RawMessage(`{"path":"/cli/Demo.java"}`)); got != "/cli/Demo.java" {
+		t.Errorf("cursor path fallback: %q", got)
+	}
+	if got := CursorTools.FilePath(json.RawMessage(`{"file_path":"/ide/Demo.java","path":"/ignored"}`)); got != "/ide/Demo.java" {
+		t.Errorf("cursor must prefer file_path over path: %q", got)
 	}
 }
 
@@ -124,5 +132,18 @@ func TestToolConventionChanges(t *testing.T) {
 	// gemini: no diff
 	if d := GeminiTools.Changes("write_file", json.RawMessage(`{"content":"z"}`)); d != nil {
 		t.Errorf("gemini should report no diffs, got %+v", d)
+	}
+	// cursor: Write -> content, file_path key
+	if got := CursorTools.FilePath(json.RawMessage(`{"file_path":"/r/Demo.java"}`)); got != "/r/Demo.java" {
+		t.Errorf("cursor file path: %q", got)
+	}
+	if d := CursorTools.Changes("Write", json.RawMessage(`{"file_path":"/r/Demo.java","content":"class X{}"}`)); d[0].Before != "" || d[0].After != "class X{}" {
+		t.Errorf("cursor write diff (content): %+v", d)
+	}
+	if d := CursorTools.Changes("Write", json.RawMessage(`{"path":"/r/Demo.java","contents":"class Y{}"}`)); d[0].Before != "" || d[0].After != "class Y{}" {
+		t.Errorf("cursor write diff (contents): %+v", d)
+	}
+	if d := CursorTools.Changes("StrReplace", json.RawMessage(`{"path":"/r/Demo.java","old_string":"a","new_string":"b"}`)); d[0].Before != "a" || d[0].After != "b" {
+		t.Errorf("cursor strreplace diff: %+v", d)
 	}
 }

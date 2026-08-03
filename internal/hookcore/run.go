@@ -7,6 +7,23 @@ import (
 	"github.com/Checkmarx/ast-cx-hooks/internal/codec"
 )
 
+// RunFailOpen is like Run but writes fallback to stdout when stdin cannot be decoded,
+// so agents that require valid JSON on stdout (Cursor) never see an empty response.
+func RunFailOpen[I any, O any](handler func(I) O, fallback O) {
+	var in I
+	if err := codec.DecodeStdin(&in); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdin decode error: %v\n", err)
+		if encErr := codec.EncodeStdout(fallback); encErr != nil {
+			fmt.Fprintf(os.Stderr, "agenthooks: stdout encode error: %v\n", encErr)
+		}
+		os.Exit(0)
+	}
+	if err := codec.EncodeStdout(handler(in)); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdout encode error: %v\n", err)
+		os.Exit(0)
+	}
+}
+
 // Run reads one JSON event from stdin, passes it to handler, and writes the
 // result to stdout. Any stdin/stdout codec error is logged to stderr and the
 // process exits 0 so a bad payload never blocks an agent. Shared by the root
