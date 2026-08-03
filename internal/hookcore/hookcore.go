@@ -70,6 +70,9 @@ type IdleVerdict struct {
 	// Proceed true = let the agent stop; false = continue working.
 	Proceed  bool
 	Feedback string // shown to the agent when Proceed is false
+	// Context is additional guidance injected alongside an Interrupt. On Claude it uses
+	// additionalContext; on Cursor it is merged into followup_message.
+	Context string
 }
 
 // Resume allows the agent to stop normally.
@@ -77,6 +80,12 @@ func Resume() IdleVerdict { return IdleVerdict{Proceed: true} }
 
 // Interrupt prevents the agent from stopping and sends feedback for the next iteration.
 func Interrupt(feedback string) IdleVerdict { return IdleVerdict{Proceed: false, Feedback: feedback} }
+
+// InterruptWithContext prevents stopping (short feedback shown to the user) and injects detailed
+// guidance via the platform's additionalContext, where supported (Claude).
+func InterruptWithContext(feedback, context string) IdleVerdict {
+	return IdleVerdict{Proceed: false, Feedback: feedback, Context: context}
+}
 
 // AgentIdleFunc is the handler signature for WhenAgentIdle / WhenSubagentIdle.
 type AgentIdleFunc func(AgentIdleEvent) IdleVerdict

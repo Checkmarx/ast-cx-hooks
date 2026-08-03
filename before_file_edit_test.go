@@ -169,9 +169,55 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 					return agenthooks.RejectEditWithContext("ASCA finding", "context dropped on cursor")
 				})
 			},
-			stdin:      `{"conversation_id":"c","tool_name":"Write","tool_input":{"file_path":"/r/app.py","content":"eval(x)"},"cwd":"/r"}`,
-			wantStdout: []string{`"permission":"deny"`, `ASCA finding`},
-			notStdout:  []string{"additional_context", "context dropped on cursor"},
+			stdin: `{"conversation_id":"c","tool_name":"Write","tool_input":{"file_path":"/r/app.py","content":"eval(x)"},"cwd":"/r"}`,
+			wantStdout: []string{
+				`"permission":"deny"`,
+				`"user_message":"ASCA finding"`,
+				`CHECKMARX_HOOK_DENY`,
+				`ASCA finding`,
+				`context dropped on cursor`,
+				// Cursor emits context in BOTH agent_message AND additional_context so that
+				// different Cursor surfaces (CLI vs proto) both receive the guidance.
+				`"additional_context":"context dropped on cursor"`,
+			},
+		},
+		{
+			name:  "cursor-before-file-write blocks CLI Write shape path+contents",
+			route: "cursor-before-file-write",
+			register: func() {
+				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
+					if e.Agent != agenthooks.AgentCursor || e.FilePath != "/r/Demo.java" {
+						t.Fatalf("unexpected event: agent=%q path=%q", e.Agent, e.FilePath)
+					}
+					if len(e.Changes) == 0 || !strings.Contains(e.Changes[0].After, "Runtime.getRuntime().exec") {
+						t.Fatalf("expected proposed content from path+contents payload, got %+v", e.Changes)
+					}
+					return agenthooks.RejectEditWithContext("ASCA finding", "remediate")
+				})
+			},
+			stdin: `{"conversation_id":"c","tool_name":"Write","tool_input":{"path":"/r/Demo.java","contents":"public class Demo {\n  void run(String userInput) throws Exception {\n    Runtime.getRuntime().exec(userInput);\n  }\n}\n"},"cwd":"/r"}`,
+			wantStdout: []string{
+				`"permission":"deny"`,
+				`"user_message":"ASCA finding"`,
+				`CHECKMARX_HOOK_DENY`,
+			},
+		},
+		{
+			name:  "cursor-before-file-write blocks StrReplace via path+old/new",
+			route: "cursor-before-file-write",
+			register: func() {
+				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
+					if e.Agent != agenthooks.AgentCursor || e.FilePath != "/r/Demo.java" {
+						t.Fatalf("unexpected event: agent=%q path=%q", e.Agent, e.FilePath)
+					}
+					if len(e.Changes) == 0 || e.Changes[0].Before != "safe()" || e.Changes[0].After != "Runtime.getRuntime().exec(userInput)" {
+						t.Fatalf("expected StrReplace diff, got %+v", e.Changes)
+					}
+					return agenthooks.RejectEditWithContext("ASCA finding", "remediate")
+				})
+			},
+			stdin:      `{"conversation_id":"c","tool_name":"StrReplace","tool_input":{"path":"/r/Demo.java","old_string":"safe()","new_string":"Runtime.getRuntime().exec(userInput)"},"cwd":"/r"}`,
+			wantStdout: []string{`"permission":"deny"`, `"user_message":"ASCA finding"`},
 		},
 		{
 			name:  "cursor-before-file-write approves non-Write tools",
@@ -183,6 +229,38 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 				})
 			},
 			stdin:      `{"conversation_id":"c","tool_name":"Read","tool_input":{"file_path":"/r/app.py"},"cwd":"/r"}`,
+			wantStdout: []string{`"permission":"allow"`},
+		},
+		{
+			// When Cursor omits cwd, the adapter must fall back to workspace_roots[0] so that
+			// --ignored-file-path in suppress commands is anchored to the repo root.
+			name:  "cursor-before-file-write uses workspace_roots when cwd is absent",
+			route: "cursor-before-file-write",
+			register: func() {
+				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
+					if e.WorkDir != "/repo/root" {
+						t.Errorf("expected WorkDir=/repo/root from workspace_roots[0], got %q", e.WorkDir)
+					}
+					return agenthooks.AcceptEdit()
+				})
+			},
+			// No "cwd" field — only workspace_roots.
+			stdin:      `{"conversation_id":"c","tool_name":"Write","tool_input":{"file_path":"/repo/root/main.go","content":"x"},"workspace_roots":["/repo/root"]}`,
+			wantStdout: []string{`"permission":"allow"`},
+		},
+		{
+			// When both cwd and workspace_roots are present, cwd takes precedence.
+			name:  "cursor-before-file-write explicit cwd takes precedence over workspace_roots",
+			route: "cursor-before-file-write",
+			register: func() {
+				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
+					if e.WorkDir != "/explicit/cwd" {
+						t.Errorf("expected WorkDir=/explicit/cwd, got %q", e.WorkDir)
+					}
+					return agenthooks.AcceptEdit()
+				})
+			},
+			stdin:      `{"conversation_id":"c","tool_name":"Write","tool_input":{"file_path":"/explicit/cwd/main.go","content":"x"},"cwd":"/explicit/cwd","workspace_roots":["/other/root"]}`,
 			wantStdout: []string{`"permission":"allow"`},
 		},
 		{

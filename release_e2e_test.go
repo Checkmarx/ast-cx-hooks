@@ -62,9 +62,12 @@ func TestReleaseE2E_OneHandlerAllAgents(t *testing.T) {
 				[]string{`"permissionDecision":"deny"`, `"hookSpecificOutput"`, `"additionalContext":"Run cx-security remediation."`}, nil},
 			{"cursor-before-shell",
 				`{"hook_event_name":"beforeShellExecution","conversation_id":"c1","command":"rm -rf /","cwd":"/p"}`,
-				// Cursor gate has no additionalContext field per the doc: deny + reason only;
-				// the unified Context is dropped+logged, NOT folded into agent_message.
-				[]string{`"permission":"deny"`, `"agent_message":"Blocked: destructive recursive delete."`}, []string{"hookSpecificOutput", "Run cx-security remediation."}},
+				[]string{
+					`"permission":"deny"`,
+					`CHECKMARX_HOOK_DENY`,
+					`Blocked: destructive recursive delete.`,
+					`Run cx-security remediation.`,
+				}, []string{"hookSpecificOutput", "additionalContext"}},
 			{"gemini-before-tool",
 				`{"hook_event_name":"BeforeTool","session_id":"s1","tool_name":"run_shell_command","tool_input":{"command":"rm -rf /"}}`,
 				// Gemini BeforeTool has no additionalContext channel: reason delivered, context dropped.

@@ -12,32 +12,28 @@ import (
 // registry; the per-platform logic lives here for locality.
 
 // permissionResult maps a unified ToolVerdict onto Cursor's PermissionResult.
-// Cursor does not support input rewriting on these gates, so RewrittenInput is
-// ignored here.
+// Cursor has no additionalContext field on permission-style hooks, so remediation
+// Context is folded into agent_message.
 func permissionResult(v hookcore.ToolVerdict) PermissionResult {
-	if v.Context != "" {
-		// Cursor's gate output (permission / user_message / agent_message) has no
-		// additionalContext field in the doc, so the unified Context cannot be
-		// delivered here per the documentation; report the drop rather than
-		// repurpose user_message/agent_message (which carry the deny reason).
-		hookcore.LogIgnoredVerdict(hookcore.AgentCursor, "tool-gate", "Context")
-	}
 	if v.Permit {
-		if v.Message != "" {
-			return PermitWithNote(v.Message)
+		if msg := agentMessageFromVerdict(v); msg != "" {
+			if v.Message != "" && v.Context != "" {
+				return PermissionResult{Permission: "allow", UserNote: v.Message, AgentNote: msg}
+			}
+			return PermissionResult{Permission: "allow", AgentNote: msg}
 		}
 		return Permit()
 	}
 	if v.NeedsConfirm {
-		return RequestConfirmation(v.Message, v.Message)
+		return RequestConfirmation(v.Message, agentMessageFromVerdict(v))
 	}
-	return Forbid(v.Message, v.Message)
+	return Forbid(v.Message, formatDenyAgentMessage(agentMessageFromVerdict(v)))
 }
 
 // IdleAdapter handles the unified "agent finished" hook for Cursor (stop).
 func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	return "cursor-stop", func() {
-		hookcore.Run(func(ev StopEvent) StopResult {
+		hookcore.RunFailOpen(func(ev StopEvent) StopResult {
 			v := fn(hookcore.AgentIdleEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				CompletionStatus: ev.Status, AutoRetryCount: ev.LoopCount, Raw: &ev,
@@ -45,15 +41,15 @@ func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 			if v.Proceed {
 				return LetStop()
 			}
-			return SendFollowup(v.Feedback)
-		})
+			return SendFollowup(AgentMessageWithContext(v.Feedback, v.Context))
+		}, LetStop())
 	}
 }
 
 // SubagentIdleAdapter handles the unified "subagent finished" hook for Cursor.
 func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	return "cursor-subagent-stop", func() {
-		hookcore.Run(func(ev SubagentStopEvent) SubagentStopResult {
+		hookcore.RunFailOpen(func(ev SubagentStopEvent) SubagentStopResult {
 			v := fn(hookcore.AgentIdleEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				CompletionStatus: ev.Status, AutoRetryCount: ev.LoopCount, Raw: &ev,
@@ -61,28 +57,28 @@ func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 			if v.Proceed {
 				return LetSubagentStop()
 			}
-			return SendSubagentFollowup(v.Feedback)
-		})
+			return SendSubagentFollowup(AgentMessageWithContext(v.Feedback, v.Context))
+		}, LetSubagentStop())
 	}
 }
 
 // ShellToolAdapter handles the unified pre-tool-call hook for Cursor shell executions.
 func ShellToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "cursor-before-shell", func() {
-		hookcore.Run(func(ev ShellPreEvent) ShellPreResult {
+		hookcore.RunFailOpen(func(ev ShellPreEvent) ShellPreResult {
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentCursor, Kind: hookcore.ToolKindShell,
 				Command: ev.Command, WorkDir: ev.WorkDir, Raw: &ev,
 			})
 			return permissionResult(v)
-		})
+		}, Permit())
 	}
 }
 
 // MCPToolAdapter handles the unified pre-tool-call hook for Cursor MCP executions.
 func MCPToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "cursor-before-mcp", func() {
-		hookcore.Run(func(ev MCPPreEvent) MCPPreResult {
+		hookcore.RunFailOpen(func(ev MCPPreEvent) MCPPreResult {
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentCursor, Kind: hookcore.ToolKindMCP,
 				// ToolInput arrives as a JSON-encoded string; expose it to handlers as
@@ -91,7 +87,7 @@ func MCPToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 				ServerURL: ev.ServerURL, Command: ev.Command, Raw: &ev,
 			})
 			return permissionResult(v)
-		})
+		}, Permit())
 	}
 }
 
@@ -102,18 +98,24 @@ func MCPToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 // actually reaches the agent. postToolUse cannot BLOCK a completed tool (its output
 // is only updated_mcp_tool_output + additional_context), so a unified Reject surfaces
 // as additional_context guidance, not a hard block (the write already landed).
-// FilePath comes from tool_input.file_path (Cursor's documented path key); the Write
-// tool_input content schema is undocumented, so Changes is left empty and the raw
-// tool_input is exposed via Raw. Non-Write tools are a no-op.
+// FilePath and proposed content come from tool_input via CursorTools.
 func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 	return "cursor-after-file-edit", func() {
-		hookcore.Run(func(ev ToolPostEvent) ToolPostResult {
-			if ev.ToolName != "Write" {
+		hookcore.RunFailOpen(func(ev ToolPostEvent) ToolPostResult {
+			if !hookcore.CursorTools.IsWrite(ev.ToolName) {
 				return ToolPostResult{}
+			}
+			// Mirror the FileEditAdapter fallback: Cursor may omit cwd on postToolUse
+			// events too, so use workspace_roots[0] to anchor --ignored-file-path.
+			workDir := ev.WorkDir
+			if workDir == "" && len(ev.WorkspaceRoots) > 0 {
+				workDir = ev.WorkspaceRoots[0]
 			}
 			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
-				FilePath: writeFilePath(ev.ToolInput), WorkDir: ev.WorkDir, Raw: &ev,
+				FilePath: hookcore.CursorTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.CursorTools.Changes(ev.ToolName, ev.ToolInput),
+				WorkDir:  workDir, Raw: &ev,
 			})
 			if v.Reject {
 				ctx := v.Feedback
@@ -129,14 +131,14 @@ func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 				return AddContext(v.Context)
 			}
 			return ToolPostResult{}
-		})
+		}, ToolPostResult{})
 	}
 }
 
 // PromptAdapter handles the unified prompt-submit hook for Cursor.
 func PromptAdapter(fn hookcore.PromptFunc) (string, func()) {
 	return "cursor-before-submit-prompt", func() {
-		hookcore.Run(func(ev PromptPreEvent) PromptPreResult {
+		hookcore.RunFailOpen(func(ev PromptPreEvent) PromptPreResult {
 			v := fn(hookcore.PromptEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				Text: ev.Prompt, Raw: &ev,
@@ -145,74 +147,103 @@ func PromptAdapter(fn hookcore.PromptFunc) (string, func()) {
 				return BlockPrompt(v.Message)
 			}
 			return AcceptPrompt()
-		})
+		}, AcceptPrompt())
 	}
 }
 
 // ToolFailureAdapter handles the unified post-tool-failure hook for Cursor (observational).
 func ToolFailureAdapter(fn hookcore.ToolFailureFunc) (string, func()) {
 	return "cursor-post-tool-use-failure", func() {
-		hookcore.Run(func(ev ToolFailureEvent) ToolFailureResult {
+		hookcore.RunFailOpen(func(ev ToolFailureEvent) ToolFailureResult {
 			fn(hookcore.ToolFailureEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				ToolName: ev.ToolName, Error: ev.ErrorMessage, WorkDir: ev.WorkDir, Raw: &ev,
 			})
 			return ToolFailureResult{}
-		})
+		}, ToolFailureResult{})
 	}
 }
 
 // toolPreDecision maps a unified PreToolUse-style verdict onto Cursor's generic
-// preToolUse output (ToolPreResult). Cursor's preToolUse output has no
-// additionalContext field, so Context is dropped+logged. Cursor accepts but does
-// NOT enforce permission "ask" on preToolUse, so an ask collapses to a deny — a
-// gate must fail safe rather than silently allow.
+// preToolUse output (ToolPreResult). Cursor has no additionalContext field, so
+// remediation Context is folded into agent_message. Cursor accepts but does NOT
+// enforce permission "ask" on preToolUse, so an ask collapses to a deny — a gate
+// must fail safe rather than silently allow.
 func toolPreDecision(v hookcore.ToolVerdict) ToolPreResult {
-	if v.Context != "" {
-		hookcore.LogIgnoredVerdict(hookcore.AgentCursor, "pre-tool-use", "Context (preToolUse output has no additionalContext field)")
-	}
 	if v.Permit {
 		if v.RewrittenInput != nil {
-			return ToolPreResult{Permission: "allow", UpdatedInput: v.RewrittenInput}
+			out := ToolPreResult{Permission: "allow", UpdatedInput: v.RewrittenInput}
+			if msg := agentMessageFromVerdict(v); msg != "" {
+				out.AgentNote = msg
+			}
+			return out
 		}
-		if v.Message != "" {
-			return ToolPreResult{Permission: "allow", AgentNote: v.Message}
+		if msg := agentMessageFromVerdict(v); msg != "" {
+			return ToolPreResult{Permission: "allow", AgentNote: msg}
 		}
 		return ToolPreResult{Permission: "allow"}
 	}
-	return ToolPreResult{Permission: "deny", UserNote: v.Message, AgentNote: v.Message}
+	r := ForbidTool(v.Message, formatDenyAgentMessage(agentMessageFromVerdict(v)))
+	r.Context = v.Context
+	return r
 }
 
-// writeFilePath extracts the edited file path from a Write tool's input. Cursor
-// reports paths as file_path across its hooks (afterFileEdit, beforeReadFile,
-// attachments), so the same key is used here.
-func writeFilePath(input json.RawMessage) string {
-	var v struct {
-		FilePath string `json:"file_path"`
+// DenyAgentMessagePrefix is prepended to every Cursor deny agent_message so agents
+// reliably recognize hook denies even when the IDE reformats the tool error body.
+const DenyAgentMessagePrefix = "CHECKMARX_HOOK_DENY — MANDATORY agent_message (follow exactly; cx-hook-deny rule applies):\n\n"
+
+// formatDenyAgentMessage prefixes remediation guidance for deny responses.
+func formatDenyAgentMessage(msg string) string {
+	if msg == "" {
+		return DenyAgentMessagePrefix + "Follow user_message and invoke the cx-devassist-asca skill for remediation."
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck // absent path is fine (best-effort)
-	return v.FilePath
+	if strings.HasPrefix(msg, DenyAgentMessagePrefix) {
+		return msg
+	}
+	return DenyAgentMessagePrefix + msg
+}
+
+// agentMessageFromVerdict builds agent_message for Cursor permission-style hooks.
+// When a verdict carries remediation Context, it is appended after the primary message
+// so the agent receives the full guidance (Cursor has no additionalContext field).
+func agentMessageFromVerdict(v hookcore.ToolVerdict) string {
+	if v.Context == "" {
+		return v.Message
+	}
+	if v.Message == "" {
+		return v.Context
+	}
+	return strings.TrimSpace(v.Message + "\n\n" + v.Context)
 }
 
 // FileEditAdapter handles the unified pre-file-write GATE for Cursor via the generic
 // preToolUse hook scoped to the Write tool. Cursor's preToolUse can DENY a tool
 // before it runs (permission:"deny"), so a security scan can block a vulnerable
 // write before it lands; non-Write tools are approved untouched so a generic
-// pre-tool-call gate (beforeShellExecution / beforeMCPExecution) owns them. The
-// Write tool_input content schema is undocumented, so Changes is left empty and the
-// raw tool_input is exposed via Raw for handlers that need the proposed content.
+// pre-tool-call gate (beforeShellExecution / beforeMCPExecution) owns them.
+// Proposed content is extracted from tool_input via CursorTools so handlers can
+// scan the bytes before they are written.
 func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 	return "cursor-before-file-write", func() {
-		hookcore.Run(func(ev ToolPreEvent) ToolPreResult {
-			if ev.ToolName != "Write" {
+		hookcore.RunFailOpen(func(ev ToolPreEvent) ToolPreResult {
+			if !hookcore.CursorTools.IsWrite(ev.ToolName) {
 				return ToolPreResult{Permission: "allow"}
+			}
+			// Cursor does not always populate cwd on preToolUse events. Fall back to
+			// the first workspace root so --ignored-file-path is always anchored to the
+			// repo root in the suppress commands delivered to the agent.
+			workDir := ev.WorkDir
+			if workDir == "" && len(ev.WorkspaceRoots) > 0 {
+				workDir = ev.WorkspaceRoots[0]
 			}
 			v := fn(hookcore.FileEditEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
-				FilePath: writeFilePath(ev.ToolInput), WorkDir: ev.WorkDir, Raw: &ev,
+				FilePath: hookcore.CursorTools.FilePath(ev.ToolInput),
+				Changes:  hookcore.CursorTools.Changes(ev.ToolName, ev.ToolInput),
+				WorkDir:  workDir, Raw: &ev,
 			})
 			return toolPreDecision(v)
-		})
+		}, PermitTool())
 	}
 }
 
@@ -224,26 +255,23 @@ func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 // no additionalContext field, so a unified Context is dropped+logged.
 func FileReadAsEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 	return "cursor-before-file-read", func() {
-		hookcore.Run(func(ev ReadFilePreEvent) ReadFilePreResult {
+		hookcore.RunFailOpen(func(ev ReadFilePreEvent) ReadFilePreResult {
 			v := fn(hookcore.FileEditEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				FilePath: ev.FilePath, Raw: &ev,
 			})
-			if v.Context != "" {
-				hookcore.LogIgnoredVerdict(hookcore.AgentCursor, "before-read-file", "Context (beforeReadFile output has no additionalContext field)")
-			}
 			if v.Permit {
 				return PermitRead()
 			}
-			return ForbidRead(v.Message)
-		})
+			return ForbidRead(AgentMessageWithContext(v.Message, v.Context))
+		}, PermitRead())
 	}
 }
 
 // FileReadAdapter handles the unified pre-file-read hook for Cursor (beforeReadFile).
 func FileReadAdapter(fn hookcore.FileReadFunc) (string, func()) {
 	return "cursor-before-read-file", func() {
-		hookcore.Run(func(ev ReadFilePreEvent) ReadFilePreResult {
+		hookcore.RunFailOpen(func(ev ReadFilePreEvent) ReadFilePreResult {
 			v := fn(hookcore.FileReadEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				FilePath: ev.FilePath, Raw: &ev,
@@ -252,6 +280,6 @@ func FileReadAdapter(fn hookcore.FileReadFunc) (string, func()) {
 				return PermitRead()
 			}
 			return ForbidRead(v.Message)
-		})
+		}, PermitRead())
 	}
 }
