@@ -91,6 +91,31 @@ func MCPToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	}
 }
 
+// normalizeWorkDir canonicalizes a workDir/workspace-root value Cursor reports on
+// Windows. Cursor spells a Windows workspace root as "/c:/foo/bar" (a leading slash
+// before the drive letter) rather than the native "c:/foo/bar" or "c:\foo\bar".
+// Passed through unchanged, that leading slash survives into every downstream
+// consumer of WorkDir — most visibly the `--ignored-file-path`/`--data @<file>`
+// arguments ast-cli's ASCA/KICS/SCA guardrails render into suggested
+// `cx ignore-vulnerability` commands, and the path ast-cli's ignore-file reader
+// actually opens — where Go's os.ReadFile/os.Open reject it outright ("The
+// filename, directory name, or volume label syntax is incorrect"). Stripping the
+// leading slash here, once, at ingestion, fixes every downstream consumer instead
+// of requiring each one to defend against Cursor's spelling individually. Other
+// agents' WorkDir/cwd values are already native and pass through unchanged. Used
+// by both FileWriteAdapter (below) and FileEditAdapter.
+func normalizeWorkDir(path string) string {
+	r := strings.ReplaceAll(path, "\\", "/")
+	if len(r) >= 3 && r[0] == '/' && isASCIIDriveLetter(r[1]) && r[2] == ':' {
+		r = r[1:]
+	}
+	return r
+}
+
+func isASCIIDriveLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
 // FileWriteAdapter handles the unified post-file-write hook for Cursor via the
 // generic postToolUse hook scoped to the Write tool. Cursor's dedicated afterFileEdit
 // hook is fire-and-forget (its result is empty, so no verdict can be delivered),
@@ -111,6 +136,7 @@ func FileWriteAdapter(fn hookcore.FileWriteFunc) (string, func()) {
 			if workDir == "" && len(ev.WorkspaceRoots) > 0 {
 				workDir = ev.WorkspaceRoots[0]
 			}
+			workDir = normalizeWorkDir(workDir)
 			v := fn(hookcore.FileWriteEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				FilePath: hookcore.CursorTools.FilePath(ev.ToolInput),
@@ -236,6 +262,7 @@ func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 			if workDir == "" && len(ev.WorkspaceRoots) > 0 {
 				workDir = ev.WorkspaceRoots[0]
 			}
+			workDir = normalizeWorkDir(workDir)
 			v := fn(hookcore.FileEditEvent{
 				Agent: hookcore.AgentCursor, SessionID: ev.ConversationID,
 				FilePath: hookcore.CursorTools.FilePath(ev.ToolInput),
