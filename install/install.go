@@ -1,6 +1,7 @@
 // Package install writes per-agent hook configuration into each agent's settings
 // file. It is the canonical installer consumers (e.g. the cx CLI) call to wire a
-// hook binary into Claude Code, Cursor, Windsurf, Factory Droid, and Gemini CLI.
+// hook binary into Claude Code, Cursor, Windsurf, Factory Droid, Gemini CLI,
+// GitHub Copilot CLI, and OpenAI Codex CLI.
 //
 // Each InstallX function writes that agent's curated route set — the routes a
 // consumer exposes as `<binary> hooks <route>` subcommands. The settings-file path,
@@ -51,6 +52,9 @@ var (
 	copilotCLIRoutes = []string{
 		"copilot-cli-stop", "copilot-cli-pre-tool-use", "copilot-cli-pre-file-write", "copilot-cli-user-prompt-submit",
 	}
+	codexRoutes = []string{
+		"codex-stop", "codex-pre-tool-use", "codex-pre-file-write", "codex-user-prompt-submit",
+	}
 )
 
 // InstallClaude writes Claude Code hook config (~/.claude/settings.json) under home.
@@ -81,6 +85,11 @@ func InstallGemini(home string, cmdFor CmdForFunc) error {
 // InstallCopilotCLI writes GitHub Copilot CLI hook config (~/.copilot/hooks/agenthooks.json) under home.
 func InstallCopilotCLI(home string, cmdFor CmdForFunc) error {
 	return install(home, copilotCLIRoutes, cmdFor)
+}
+
+// InstallCodex writes OpenAI Codex CLI hook config (~/.codex/hooks.json) under home.
+func InstallCodex(home string, cmdFor CmdForFunc) error {
+	return install(home, codexRoutes, cmdFor)
 }
 
 // install groups the given routes by their settings file (from the Catalog) and
@@ -138,7 +147,7 @@ func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, cmd string) {
 		if !containsCommand(arr, cmd) {
 			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
 		}
-	case agenthooks.StyleGeminiNested:
+	case agenthooks.StyleGeminiNested, agenthooks.StyleCodexNested:
 		hooks := ensureMap(m, "hooks")
 		arr := toSlice(hooks[e.EventKey])
 		if !containsCommand(arr, cmd) {

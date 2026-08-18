@@ -14,6 +14,7 @@ package agenthooks
 //   - Factory Droid   → "droid-stop"
 //   - Gemini CLI      → "gemini-after-agent"
 //   - VS Code Copilot → "copilot-stop"
+//   - Codex CLI       → "codex-stop"
 func WhenAgentIdle(fn AgentIdleFunc) { idleReg.setDefault(fn) }
 
 // WhenSubagentIdle registers the default handler for "subagent finished" events.
@@ -23,6 +24,7 @@ func WhenAgentIdle(fn AgentIdleFunc) { idleReg.setDefault(fn) }
 //   - Factory Droid   → "droid-subagent-stop"
 //   - VS Code Copilot → "copilot-subagent-stop"
 //   - Cursor          → "cursor-subagent-stop"
+//   - Codex CLI       → "codex-subagent-stop"
 func WhenSubagentIdle(fn AgentIdleFunc) { subagentIdleReg.setDefault(fn) }
 
 // BeforeToolCall registers the default handler for pre-execution events:
@@ -32,6 +34,7 @@ func WhenSubagentIdle(fn AgentIdleFunc) { subagentIdleReg.setDefault(fn) }
 //   - Factory Droid   → "droid-pre-tool-use" (blocking via exit 2)
 //   - Gemini CLI      → "gemini-before-tool"
 //   - VS Code Copilot → "copilot-pre-tool-use"
+//   - Codex CLI       → "codex-pre-tool-use"
 func BeforeToolCall(fn ToolCallFunc) { toolCallReg.setDefault(fn) }
 
 // AfterToolFailure registers the default handler for failed tool calls:
@@ -46,6 +49,7 @@ func AfterToolFailure(fn ToolFailureFunc) { toolFailureReg.setDefault(fn) }
 //   - Factory Droid   → "droid-after-file-write"
 //   - Gemini CLI      → "gemini-after-file-tool"
 //   - VS Code Copilot → "copilot-after-file-write"
+//   - Codex CLI       → "codex-after-file-write" (PostToolUse, apply_patch)
 func AfterFileWrite(fn FileWriteFunc) { fileWriteReg.setDefault(fn) }
 
 // BeforeFileEdit registers the default handler for "agent about to write/edit a
@@ -55,6 +59,7 @@ func AfterFileWrite(fn FileWriteFunc) { fileWriteReg.setDefault(fn) }
 // (AcceptEdit / RejectEdit / RejectEditWithContext / AskBeforeEdit):
 //   - Claude Code   → "claude-pre-file-write" (PreToolUse, Write/Edit/MultiEdit; deny + additionalContext)
 //   - Factory Droid → "droid-pre-file-write"  (PreToolUse, Write/Edit; deny only — no context channel)
+//   - Codex CLI     → "codex-pre-file-write"  (PreToolUse, apply_patch; deny + additionalContext)
 func BeforeFileEdit(fn FileEditFunc) { fileEditReg.setDefault(fn) }
 
 // BeforeFileRead registers the default handler for "agent about to read a file" events:
@@ -69,4 +74,5 @@ func BeforeFileRead(fn FileReadFunc) { fileReadReg.setDefault(fn) }
 //   - Factory Droid   → "droid-user-prompt-submit"
 //   - Gemini CLI      → "gemini-before-agent"
 //   - VS Code Copilot → "copilot-user-prompt-submit"
+//   - Codex CLI       → "codex-user-prompt-submit"
 func BeforePrompt(fn PromptFunc) { promptReg.setDefault(fn) }

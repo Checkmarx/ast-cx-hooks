@@ -9,7 +9,8 @@
 
 One hook codebase for every AI coding agent. Write a single handler, compile one
 binary, and it runs across **Claude Code · Cursor · Windsurf Cascade · Factory Droid ·
-Gemini CLI · GitHub Copilot (VS Code) · GitHub Copilot CLI** — no per-platform code.
+Gemini CLI · GitHub Copilot (VS Code) · GitHub Copilot CLI · OpenAI Codex CLI** — no
+per-platform code.
 
 ```go
 package main
@@ -31,7 +32,7 @@ func main() {
 }
 ```
 
-That one handler gates shell commands in all seven agents — the library translates the
+That one handler gates shell commands in all eight agents — the library translates the
 wire format (JSON schema, response shape, blocking semantics) per platform.
 
 ## Installation
@@ -53,6 +54,7 @@ Zero dependencies (standard library only).
 | Gemini CLI | `~/.gemini/settings.json` | JSON decision / exit `2` |
 | GitHub Copilot (VS Code) | `.github/hooks/*.json` (project-scoped) | nested JSON decision |
 | GitHub Copilot CLI | `~/.copilot/hooks/agenthooks.json` | flat JSON / exit `2` |
+| OpenAI Codex CLI | `~/.codex/hooks.json` | nested JSON decision |
 
 The VS Code Copilot extension and the Copilot **CLI** are different products with
 incompatible hook schemas (nested vs. flat output, `updatedInput` vs. `modifiedArgs`,
@@ -152,18 +154,18 @@ Verdicts: `AllowRead()` · `DenyRead(reason)`
 
 Which unified hooks each agent supports today:
 
-| Unified hook | Claude | Cursor | Windsurf | Droid | Gemini | Copilot | Copilot CLI |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `WhenAgentIdle` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
-| `BeforeToolCall` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `BeforeFileEdit` | ✅ ⁴ | ✅ | ✅ | ✅ | ✅ | ✅ ⁴ | ✅ |
-| `AfterFileWrite` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ |
-| `BeforePrompt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ ³ |
-| `WhenSubagentIdle` | ✅ | ✅ | — | ✅ | — | ✅ | ✅ |
-| `AfterToolFailure` | ✅ | ✅ ² | — | — | — | — | ✅ |
-| `BeforeFileRead` | — | ✅ | ✅ | — | — | — | — |
+| Unified hook | Claude | Cursor | Windsurf | Droid | Gemini | Copilot | Copilot CLI | Codex CLI |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `WhenAgentIdle` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `BeforeToolCall` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ ⁵ |
+| `BeforeFileEdit` | ✅ ⁴ | ✅ | ✅ | ✅ | ✅ | ✅ ⁴ | ✅ | ✅ ⁴ |
+| `AfterFileWrite` | ✅ | ✅ | ✅ ¹ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `BeforePrompt` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ ³ | ✅ |
+| `WhenSubagentIdle` | ✅ | ✅ | — | ✅ | — | ✅ | ✅ | ✅ |
+| `AfterToolFailure` | ✅ | ✅ ² | — | — | — | — | ✅ | — |
+| `BeforeFileRead` | — | ✅ | ✅ | — | — | — | — | — |
 
-<sub>¹ fire-and-forget — feedback is logged, not enforced by the agent.  ² observational on Cursor — the verdict is ignored.  ³ observational on Copilot CLI — `userPromptSubmitted` output is not processed.  ⁴ `additionalContext` on a deny is delivered only where the agent's hook protocol defines that field — Claude and VS Code Copilot on the pre-tool / pre-file gates; elsewhere a deny carries its reason only (context is dropped and logged).</sub>
+<sub>¹ fire-and-forget — feedback is logged, not enforced by the agent.  ² observational on Cursor — the verdict is ignored.  ³ observational on Copilot CLI — `userPromptSubmitted` output is not processed.  ⁴ `additionalContext` on a deny is delivered only where the agent's hook protocol defines that field — Claude, VS Code Copilot, and Codex CLI on the pre-tool / pre-file gates; elsewhere a deny carries its reason only (context is dropped and logged).  ⁵ Codex CLI support is modeled from its published hooks doc, not a captured payload — see `codex/doc.go` for the specific assumptions (tool naming, no "ask" decision) pending live-payload verification.</sub>
 
 ## Multiple implementations per hook (scenarios)
 
@@ -206,11 +208,11 @@ go run github.com/Checkmarx/ast-cx-hooks/cmd/agenthooks install ./myhook
 
 `install` writes to `~/.claude/settings.json`, `~/.cursor/hooks.json`,
 `~/.codeium/windsurf/hooks.json`, `~/.factory/settings.json`, `~/.gemini/settings.json`,
-and `~/.copilot/hooks/agenthooks.json`. The VS Code Copilot extension is project-scoped
-(`.github/hooks/*.json`) and is set up by hand.
+`~/.copilot/hooks/agenthooks.json`, and `~/.codex/hooks.json`. The VS Code Copilot extension
+is project-scoped (`.github/hooks/*.json`) and is set up by hand.
 
 **Embedding installation.** Consumers that wire these hooks into their own CLI can import the
-`install` package directly — `install.InstallClaude/InstallCursor/InstallWindsurf/InstallDroid/InstallGemini/InstallCopilotCLI(home, cmdFor)`
+`install` package directly — `install.InstallClaude/InstallCursor/InstallWindsurf/InstallDroid/InstallGemini/InstallCopilotCLI/InstallCodex(home, cmdFor)`
 plus `install.FormatCommand` and the `install.CmdForFunc` type — to control the command each
 route maps to (e.g. `cx hooks <route>`). Route → settings-file / event-key / encoding is driven by
 the single `agenthooks.Catalog` source of truth.
@@ -235,9 +237,9 @@ agenthooks.AddRoute("claude-pre-tool-use", func() {
 })
 ```
 
-Packages: `claude` · `cursor` · `windsurf` · `droid` · `gemini` · `copilot` · `copilotcli`.
-Each models its agent's full event surface and ships response builders (`additionalContext`,
-tool-input/output rewrite, permission decisions, and more).
+Packages: `claude` · `cursor` · `windsurf` · `droid` · `gemini` · `copilot` · `copilotcli` ·
+`codex`. Each models its agent's full event surface and ships response builders
+(`additionalContext`, tool-input/output rewrite, permission decisions, and more).
 
 ## Testing
 
@@ -254,6 +256,9 @@ echo '{"status":"completed","loop_count":0,"conversation_id":"t"}' | ./myhook cu
 
 # Copilot CLI pre-tool-use (lowercase tool names + FLAT output)
 echo '{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"rm -rf /"}}' | ./myhook copilot-cli-pre-tool-use
+
+# Codex CLI pre-tool-use (Claude-style nested output)
+echo '{"session_id":"t","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | ./myhook codex-pre-tool-use
 ```
 
 Unit-test a handler directly — it's plain Go:

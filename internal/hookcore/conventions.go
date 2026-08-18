@@ -173,6 +173,43 @@ func ptrOr(primary, secondary *string) string {
 	return ""
 }
 
+// codexDiff handles OpenAI Codex CLI's apply_patch tool. Unlike Claude's
+// Write/Edit (one file, old/new string or full content), apply_patch takes a
+// single "input" string holding a unified-patch-style body that can touch
+// MULTIPLE files in one call. There is no reliable per-file split, so — like
+// droidDiff's ApplyPatch case — the raw patch text is surfaced best-effort as
+// the After side with an empty Before.
+//
+// UNVERIFIED: the "input" key name and this shape are inferred from public
+// Codex apply_patch examples, not from a captured hook payload — confirm
+// against a live payload before relying on this for anything beyond
+// best-effort remediation context.
+func codexDiff(_ string, input json.RawMessage) []FileDiff {
+	var v struct {
+		Input string `json:"input"`
+	}
+	json.Unmarshal(input, &v) //nolint:errcheck
+	return []FileDiff{{Before: "", After: v.Input}}
+}
+
+var (
+	// CodexTools is the OpenAI Codex CLI tool-naming convention. UNVERIFIED
+	// against a live payload — modeled from https://learn.chatgpt.com/docs/hooks,
+	// which documents PreToolUse as firing "before executing Bash, apply_patch,
+	// MCP tools, or local functions" but does not confirm the shell tool's exact
+	// name casing or the MCP tool-name prefix; both are assumed to mirror
+	// Claude's schema (Bash, mcp__) since the rest of Codex's hook JSON schema is
+	// a documented superset of Claude's. apply_patch has no single file_path key
+	// (it's a multi-file unified patch), so FilePathKeys is empty and FilePath()
+	// falls back to "" for it (ToolConvention.FilePath already returns "" when no
+	// configured key matches, so this does not panic).
+	CodexTools = ToolConvention{
+		ShellTools: []string{"Bash"}, MCPPrefix: "mcp__",
+		WriteTools:   []string{"apply_patch"},
+		FilePathKeys: nil, Diff: codexDiff,
+	}
+)
+
 var (
 	// ClaudeTools is the Claude Code tool-naming convention (Bash + mcp__ + Write/Edit/MultiEdit).
 	ClaudeTools = ToolConvention{

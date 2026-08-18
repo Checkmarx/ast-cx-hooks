@@ -32,6 +32,9 @@ func TestToolConventionKind(t *testing.T) {
 		{"copilotcli bash lowercase", CopilotCLITools, "bash", `{"command":"rm -rf /"}`, ToolKindShell, "rm -rf /"},
 		{"copilotcli powershell", CopilotCLITools, "powershell", `{"command":"gci"}`, ToolKindShell, "gci"},
 		{"copilotcli no mcp prefix matching", CopilotCLITools, "mcp_x_y", `{}`, ToolKindBuiltin, ""},
+		{"codex bash", CodexTools, "Bash", `{"command":"ls -la"}`, ToolKindShell, "ls -la"},
+		{"codex mcp double underscore", CodexTools, "mcp__memory__store", `{}`, ToolKindMCP, ""},
+		{"codex apply_patch is not shell", CodexTools, "apply_patch", `{"input":"x"}`, ToolKindBuiltin, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,6 +64,7 @@ func TestToolConventionIsWrite(t *testing.T) {
 		{CopilotCLITools, "create", true}, {CopilotCLITools, "edit", true}, {CopilotCLITools, "Create", false},
 		{CursorTools, "Write", true}, {CursorTools, "Edit", true}, {CursorTools, "StrReplace", true},
 		{CursorTools, "EditNotebook", true}, {CursorTools, "Read", false},
+		{CodexTools, "apply_patch", true}, {CodexTools, "Bash", false},
 	}
 	for _, tc := range cases {
 		if got := tc.conv.IsWrite(tc.tool); got != tc.write {
@@ -132,6 +136,14 @@ func TestToolConventionChanges(t *testing.T) {
 	// gemini: no diff
 	if d := GeminiTools.Changes("write_file", json.RawMessage(`{"content":"z"}`)); d != nil {
 		t.Errorf("gemini should report no diffs, got %+v", d)
+	}
+	// codexDiff: apply_patch surfaces the raw multi-file patch text as After,
+	// with no reliable single FilePath (FilePathKeys is empty for Codex).
+	if d := CodexTools.Changes("apply_patch", json.RawMessage(`{"input":"*** Begin Patch\n*** End Patch"}`)); d[0].Before != "" || d[0].After != "*** Begin Patch\n*** End Patch" {
+		t.Errorf("codex apply_patch diff: %+v", d)
+	}
+	if got := CodexTools.FilePath(json.RawMessage(`{"input":"*** Begin Patch"}`)); got != "" {
+		t.Errorf("codex FilePath should be empty (no reliable single-file key), got %q", got)
 	}
 	// cursor: Write -> content, file_path key
 	if got := CursorTools.FilePath(json.RawMessage(`{"file_path":"/r/Demo.java"}`)); got != "/r/Demo.java" {

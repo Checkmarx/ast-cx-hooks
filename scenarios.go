@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/Checkmarx/ast-cx-hooks/claude"
+	"github.com/Checkmarx/ast-cx-hooks/codex"
 	"github.com/Checkmarx/ast-cx-hooks/copilot"
 	"github.com/Checkmarx/ast-cx-hooks/copilotcli"
 	"github.com/Checkmarx/ast-cx-hooks/cursor"
@@ -105,7 +106,8 @@ var idleReg = &scenarioReg[AgentIdleEvent, IdleVerdict]{
 	register: func(d func(AgentIdleEvent) IdleVerdict) {
 		registerAdapters(AgentIdleFunc(d),
 			claude.IdleAdapter, cursor.IdleAdapter, windsurf.IdleAdapter,
-			droid.IdleAdapter, gemini.IdleAdapter, copilot.IdleAdapter, copilotcli.IdleAdapter)
+			droid.IdleAdapter, gemini.IdleAdapter, copilot.IdleAdapter, copilotcli.IdleAdapter,
+			codex.IdleAdapter)
 	},
 }
 
@@ -117,7 +119,8 @@ var subagentIdleReg = &scenarioReg[AgentIdleEvent, IdleVerdict]{
 	register: func(d func(AgentIdleEvent) IdleVerdict) {
 		registerAdapters(AgentIdleFunc(d),
 			claude.SubagentIdleAdapter, droid.SubagentIdleAdapter,
-			copilot.SubagentIdleAdapter, cursor.SubagentIdleAdapter, copilotcli.SubagentIdleAdapter)
+			copilot.SubagentIdleAdapter, cursor.SubagentIdleAdapter, copilotcli.SubagentIdleAdapter,
+			codex.SubagentIdleAdapter)
 	},
 }
 
@@ -130,7 +133,8 @@ var toolCallReg = &scenarioReg[ToolCallEvent, ToolVerdict]{
 		registerAdapters(ToolCallFunc(d),
 			claude.ToolAdapter, cursor.ShellToolAdapter, cursor.MCPToolAdapter,
 			windsurf.RunCommandAdapter, windsurf.MCPToolAdapter,
-			droid.ToolAdapter, gemini.ToolAdapter, copilot.ToolAdapter, copilotcli.ToolAdapter)
+			droid.ToolAdapter, gemini.ToolAdapter, copilot.ToolAdapter, copilotcli.ToolAdapter,
+			codex.ToolAdapter)
 	},
 }
 
@@ -153,7 +157,8 @@ var fileWriteReg = &scenarioReg[FileWriteEvent, FileWriteVerdict]{
 	register: func(d func(FileWriteEvent) FileWriteVerdict) {
 		registerAdapters(FileWriteFunc(d),
 			claude.FileWriteAdapter, cursor.FileWriteAdapter, windsurf.FileWriteAdapter,
-			droid.FileWriteAdapter, gemini.FileWriteAdapter, copilot.FileWriteAdapter, copilotcli.FileWriteAdapter)
+			droid.FileWriteAdapter, gemini.FileWriteAdapter, copilot.FileWriteAdapter, copilotcli.FileWriteAdapter,
+			codex.FileWriteAdapter)
 	},
 }
 
@@ -173,7 +178,8 @@ var fileEditReg = &scenarioReg[FileEditEvent, FileEditVerdict]{
 		registerAdapters(FileEditFunc(d),
 			claude.FileEditAdapter, droid.FileEditAdapter, gemini.FileEditAdapter,
 			copilot.FileEditAdapter, copilotcli.FileEditAdapter,
-			windsurf.FileEditAdapter, cursor.FileEditAdapter, cursor.FileReadAsEditAdapter)
+			windsurf.FileEditAdapter, cursor.FileEditAdapter, cursor.FileReadAsEditAdapter,
+			codex.FileEditAdapter)
 	},
 }
 
@@ -193,7 +199,8 @@ var promptReg = &scenarioReg[PromptEvent, PromptVerdict]{
 	register: func(d func(PromptEvent) PromptVerdict) {
 		registerAdapters(PromptFunc(d),
 			claude.PromptAdapter, cursor.PromptAdapter, windsurf.PromptAdapter,
-			droid.PromptAdapter, gemini.PromptAdapter, copilot.PromptAdapter, copilotcli.PromptAdapter)
+			droid.PromptAdapter, gemini.PromptAdapter, copilot.PromptAdapter, copilotcli.PromptAdapter,
+			codex.PromptAdapter)
 	},
 }
 

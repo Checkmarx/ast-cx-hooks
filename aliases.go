@@ -51,6 +51,7 @@ const (
 	AgentGemini     = hookcore.AgentGemini
 	AgentCopilot    = hookcore.AgentCopilot
 	AgentCopilotCLI = hookcore.AgentCopilotCLI
+	AgentCodex      = hookcore.AgentCodex
 
 	ToolKindShell   = hookcore.ToolKindShell
 	ToolKindMCP     = hookcore.ToolKindMCP
