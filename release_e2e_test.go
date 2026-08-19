@@ -70,8 +70,8 @@ func TestReleaseE2E_OneHandlerAllAgents(t *testing.T) {
 				}, []string{"hookSpecificOutput", "additionalContext"}},
 			{"gemini-before-tool",
 				`{"hook_event_name":"BeforeTool","session_id":"s1","tool_name":"run_shell_command","tool_input":{"command":"rm -rf /"}}`,
-				// Gemini BeforeTool has no additionalContext channel: reason delivered, context dropped.
-				[]string{`"decision":"deny"`, `"reason":"Blocked: destructive recursive delete."`}, []string{"additionalContext", "Run cx-security remediation."}},
+				// Gemini BeforeTool has no additionalContext field; remediation Context is folded into reason.
+				[]string{`"decision":"deny"`, "Blocked: destructive recursive delete.", "Run cx-security remediation."}, []string{"additionalContext"}},
 			{"copilot-cli-pre-tool-use",
 				`{"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"bash","tool_input":{"command":"rm -rf /"}}`,
 				// Copilot CLI preToolUse: FLAT deny. Remediation Context is delivered in the
