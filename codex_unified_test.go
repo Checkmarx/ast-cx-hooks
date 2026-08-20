@@ -22,6 +22,7 @@ func TestCodexRoutesEndToEnd(t *testing.T) {
 		stdin      string
 		wantStdout []string // substrings that must appear
 		notStdout  []string // substrings that must NOT appear
+		wantEmpty  bool     // stdout must be exactly empty (plain approve; see runPreToolUse)
 	}{
 		{
 			name:  "codex-stop interrupt",
@@ -84,6 +85,23 @@ func TestCodexRoutesEndToEnd(t *testing.T) {
 			wantStdout: []string{`"permissionDecision":"allow"`, `"updatedInput"`, `"ls -la"`},
 		},
 		{
+			// A bare allow (no note/context/rewrite) writes nothing to stdout: the
+			// live Codex CLI rejects permissionDecision:"allow" as unsupported even
+			// though the published doc documents it — see runPreToolUse.
+			name:  "codex-pre-tool-use plain allow has empty stdout",
+			route: "codex-pre-tool-use",
+			register: func() {
+				agenthooks.BeforeToolCall(func(e agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+					return agenthooks.Allow()
+				})
+			},
+			stdin: `{
+				"session_id":"s-4b",
+				"tool_name":"Bash","tool_input":{"command":"ls"}
+			}`,
+			wantEmpty: true,
+		},
+		{
 			name:  "codex-pre-file-write reject with context on apply_patch",
 			route: "codex-pre-file-write",
 			register: func() {
@@ -101,7 +119,12 @@ func TestCodexRoutesEndToEnd(t *testing.T) {
 			wantStdout: []string{`"permissionDecision":"deny"`, `"secret detected"`, `"remove it and retry"`},
 		},
 		{
-			name:  "codex-pre-file-write passes through non-write tool",
+			// A plain approve writes nothing to stdout: the live Codex CLI rejects
+			// hookSpecificOutput.permissionDecision:"allow" as an unsupported
+			// PreToolUse decision, even though the published doc documents it —
+			// see runPreToolUse in codex/adapters.go. Per that same doc, "Exit 0
+			// with no output is treated as success and Codex continues".
+			name:  "codex-pre-file-write passes through non-write tool with empty stdout",
 			route: "codex-pre-file-write",
 			register: func() {
 				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
@@ -113,7 +136,7 @@ func TestCodexRoutesEndToEnd(t *testing.T) {
 				"session_id":"s-6",
 				"tool_name":"Bash","tool_input":{"command":"ls"}
 			}`,
-			wantStdout: []string{`"permissionDecision":"allow"`},
+			wantEmpty: true,
 		},
 		{
 			name:  "codex-after-file-write annotate",
@@ -188,6 +211,12 @@ func TestCodexRoutesEndToEnd(t *testing.T) {
 			agenthooks.Dispatch()
 
 			out := stdoutBuf()
+			if tc.wantEmpty {
+				if strings.TrimSpace(out) != "" {
+					t.Fatalf("expected empty stdout for a plain approve, got: %q", out)
+				}
+				return
+			}
 			var anyJSON map[string]any
 			if err := json.Unmarshal([]byte(out), &anyJSON); err != nil {
 				t.Fatalf("stdout is not valid JSON: %q (err=%v)", out, err)

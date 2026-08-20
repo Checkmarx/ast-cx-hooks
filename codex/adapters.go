@@ -1,10 +1,51 @@
 package codex
 
-import "github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
+import (
+	"fmt"
+	"os"
+
+	"github.com/Checkmarx/ast-cx-hooks/internal/codec"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
+)
 
 // This file owns the translation between Codex CLI's wire types and the
 // unified hookcore vocabulary. The root agenthooks package wires these
 // adapters into a registry; the per-platform logic lives here for locality.
+
+// isPlainApprove reports whether out is a bare PreToolUse approve — "allow"
+// with no note, no additionalContext, and no rewritten input.
+func isPlainApprove(out PreToolUseResult) bool {
+	return out.Details != nil && out.Details.Decision == "allow" &&
+		out.Details.DecisionReason == "" && out.Details.ExtraContext == "" && out.Details.RewrittenInput == nil
+}
+
+// runPreToolUse is codex's own hookcore.Run for PreToolUse: the live Codex CLI
+// rejects hookSpecificOutput.permissionDecision:"allow" as an "unsupported
+// permissionDecision" PreToolUse hook error, even though it is the value the
+// published doc (learn.chatgpt.com/docs/hooks#pretooluse) documents for a
+// plain approve. Per that same doc, "Exit 0 with no output is treated as
+// success and Codex continues" — so a bare/no-note/no-context approve writes
+// nothing to stdout instead of the JSON body (the process still exits 0
+// normally via the caller, same as every other route — no os.Exit here, so
+// this stays safe to drive in-process the way every platform's Dispatch is
+// exercised in tests). Any other decision (deny, allow-with-note,
+// allow-with-context, allow-with-rewritten-input) still needs to reach Codex
+// and is still JSON-encoded, since only the plain "allow" shape has been
+// observed to be rejected.
+func runPreToolUse(handler func(PreToolUseEvent) PreToolUseResult) {
+	var in PreToolUseEvent
+	if err := codec.DecodeStdin(&in); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdin decode error: %v\n", err)
+		return
+	}
+	out := handler(in)
+	if isPlainApprove(out) {
+		return
+	}
+	if err := codec.EncodeStdout(out); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdout encode error: %v\n", err)
+	}
+}
 
 // IdleAdapter handles the unified "agent finished" hook for Codex (Stop).
 func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
@@ -69,7 +110,7 @@ func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
 // ToolAdapter handles the unified pre-tool-call hook for Codex (Bash + mcp__*).
 func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "codex-pre-tool-use", func() {
-		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+		runPreToolUse(func(ev PreToolUseEvent) PreToolUseResult {
 			kind, cmd := hookcore.CodexTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentCodex, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
@@ -87,7 +128,7 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 // approved untouched so the generic codex-pre-tool-use gate owns them.
 func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 	return "codex-pre-file-write", func() {
-		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+		runPreToolUse(func(ev PreToolUseEvent) PreToolUseResult {
 			if !hookcore.CodexTools.IsWrite(ev.ToolName) {
 				return ApproveToolUse()
 			}

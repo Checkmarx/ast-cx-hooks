@@ -41,7 +41,7 @@ func TestPreToolUseEventDecode(t *testing.T) {
 
 func TestPreToolUseEventDecode_ApplyPatch(t *testing.T) {
 	raw := `{"session_id":"s-3","cwd":"/repo","tool_name":"apply_patch",` +
-		`"tool_input":{"input":"*** Begin Patch\n*** Update File: a.go\n*** End Patch"}}`
+		`"tool_input":{"input":"*** Begin Patch\n*** Update File: a.go\n@@\n-old\n+new\n*** End Patch"}}`
 	var ev PreToolUseEvent
 	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
 		t.Fatalf("decode: %v", err)
@@ -50,8 +50,8 @@ func TestPreToolUseEventDecode_ApplyPatch(t *testing.T) {
 		t.Fatal("IsWrite(apply_patch) = false, want true")
 	}
 	ch := hookcore.CodexTools.Changes(ev.ToolName, ev.ToolInput)
-	if len(ch) != 1 || ch[0].Before != "" || ch[0].After == "" {
-		t.Fatalf("Changes = %+v, want one diff with non-empty After (raw patch text)", ch)
+	if len(ch) != 1 || ch[0].Before != "old\n" || ch[0].After != "new\n" {
+		t.Fatalf("Changes = %+v, want one hunk diff {Before:old After:new}", ch)
 	}
 }
 

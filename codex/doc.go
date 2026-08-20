@@ -15,12 +15,29 @@
 //     patterns.
 //   - The MCP tool-name prefix is assumed to be "mcp__" (Claude's prefix) — the
 //     doc does not state one.
-//   - apply_patch's tool_input shape is assumed to be {"input": "<patch text>"},
-//     inferred from public Codex apply_patch examples elsewhere, not from this
-//     doc. Codex's apply_patch is a multi-file unified-patch tool, unlike
-//     Claude's single-file Write/Edit, so there is no reliable per-file path or
-//     diff — see internal/hookcore's CodexTools/codexDiff for the best-effort
-//     handling (raw patch text surfaced as FileDiff.After, empty FilePath).
+//   - apply_patch's tool_input shape is CONFIRMED against a live payload to be
+//     {"command": "<patch text>"} — the same key PreToolUse uses for shell
+//     commands, not {"input": "<patch text>"} as originally assumed from public
+//     examples ("input" is kept as a fallback). Codex's apply_patch is a
+//     multi-file V4A-style patch tool, unlike Claude's single-file Write/Edit;
+//     internal/hookcore's CodexTools scopes both the diff and the file path to
+//     the FIRST file section in the patch ("*** Add/Update/Delete File: <path>"
+//     — codexPatchFilePath), since FileDiff has no per-file grouping and mixing
+//     hunks from multiple files would apply one file's edits against another
+//     file's on-disk content. Within that first section, codexDiff
+//     (internal/hookcore/conventions.go) reconstructs real before/after text
+//     instead of surfacing the raw patch syntax: Add File strips each line's
+//     leading "+" to rebuild the full new file; Update File emits one FileDiff
+//     per "@@"-delimited hunk with context/"-"/"+" lines resolved into
+//     Before/After, mirroring how Claude's Edit (old_string/new_string) is
+//     applied. This is required for ASCA/KICS to scan actual source rather than
+//     diff markers — confirmed against live multi-hunk Update File payloads
+//     (see internal/hookcore/conventions_test.go). The full patch grammar
+//     (Add/Delete/Update File, Move to, End of File, Environment ID) is
+//     additionally cross-checked against openai/codex's own Lark grammar in
+//     codex-rs/apply-patch/src/parser.rs — Delete File and Move to (rename)
+//     have not been seen in a live Codex CLI payload yet, but their marker
+//     text and grammar position are taken from that source, not guessed.
 //   - PreToolUse output is documented with only "allow"/"deny" decision values
 //     (no "ask", unlike Claude's allow/deny/ask/defer) — this package's
 //     preToolDecision therefore never emits "ask" for Codex; see adapters.go.
