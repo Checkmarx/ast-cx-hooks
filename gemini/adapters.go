@@ -26,13 +26,16 @@ func IdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 
 // beforeToolDecision maps a unified PreToolUse-style verdict to Gemini's
 // BeforeToolResult. Gemini's BeforeTool wire types carry only tool_input — no
-// additionalContext and no ask channel — so Context is dropped on both allow and
-// deny, and an ask collapses to a deny (fail closed). Used by both BeforeTool
-// gates: the tool-call gate (ToolAdapter) and the pre-file-write gate (FileEditAdapter).
+// additionalContext and no ask channel — so remediation Context is folded into
+// reason on deny (same workaround as Copilot CLI preToolUse). An ask
+// collapses to a deny (fail closed). Used by both BeforeTool gates: the tool-call
+// gate (ToolAdapter) and the pre-file-write gate (FileEditAdapter).
 func beforeToolDecision(v hookcore.ToolVerdict) BeforeToolResult {
 	if !v.Permit {
-		// Covers deny AND ask (no ask channel on BeforeTool): both block. Context
-		// has no field here, so it cannot ride along on the deny.
+		// Covers deny AND ask (no ask channel on BeforeTool): both block.
+		if v.Context != "" {
+			return DenyToolCallWithContext(v.Message, v.Context)
+		}
 		return DenyToolCall(v.Message)
 	}
 	if v.RewrittenInput != nil {
@@ -48,7 +51,7 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 		hookcore.Run(func(ev BeforeToolEvent) BeforeToolResult {
 			kind, cmd := hookcore.GeminiTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
-				Agent: hookcore.AgentGemini, Kind: kind, Command: cmd,
+				Agent: hookcore.AgentGemini, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
 				ToolName: ev.ToolName, ToolArgs: ev.ToolInput, Raw: &ev,
 			})
 			return beforeToolDecision(v)
@@ -59,8 +62,8 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 // FileEditAdapter handles the unified pre-file-write GATE for Gemini: BeforeTool
 // scoped to the file-writing tools (write_file/replace). Fires BEFORE the write and
 // can DENY it; non-write tools are approved untouched so the generic
-// gemini-before-tool gate owns them. Gemini reports no diffs, so the handler sees
-// the FilePath (and Raw tool_input) but an empty Changes slice.
+// gemini-before-tool gate owns them. Changes are rebuilt from tool_input via
+// FileChanges so ASCA can scan proposed content pre-write.
 func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 	return "gemini-before-file-tool", func() {
 		hookcore.Run(func(ev BeforeToolEvent) BeforeToolResult {
@@ -69,7 +72,10 @@ func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 			}
 			v := fn(hookcore.FileEditEvent{
 				Agent: hookcore.AgentGemini, SessionID: ev.SessionID,
-				FilePath: hookcore.GeminiTools.FilePath(ev.ToolInput), Raw: &ev,
+				FilePath: hookcore.GeminiTools.FilePath(ev.ToolInput),
+				Changes:  FileChanges(ev.ToolName, ev.ToolInput),
+				WorkDir:  ev.WorkDir,
+				Raw:      &ev,
 			})
 			return beforeToolDecision(v)
 		})

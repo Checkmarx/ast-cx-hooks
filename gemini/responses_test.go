@@ -44,6 +44,22 @@ func TestAfterToolOutputRewrite(t *testing.T) {
 	}
 }
 
+// TestDenyToolCallWithContext verifies BeforeTool deny folds context into reason.
+func TestDenyToolCallWithContext(t *testing.T) {
+	r := gemini.DenyToolCallWithContext("blocked", "run /cx-security-asca")
+	if r.Decision != "deny" {
+		t.Fatalf("Decision=%q, want deny", r.Decision)
+	}
+	if !strings.Contains(r.Reason, "blocked") || !strings.Contains(r.Reason, "run /cx-security-asca") {
+		t.Fatalf("Reason should fold context: %q", r.Reason)
+	}
+	b, _ := json.Marshal(r)
+	out := string(b)
+	if strings.Contains(out, "additionalContext") {
+		t.Fatalf("BeforeTool should not emit additionalContext: %s", out)
+	}
+}
+
 // TestDenyToolResultWithContext verifies the AfterTool reject-with-context builder
 // emits BOTH the block (decision="deny" + reason) AND additionalContext, and that a
 // round-trip back through AfterToolResult preserves both.
