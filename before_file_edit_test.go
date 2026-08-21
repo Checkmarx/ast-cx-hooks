@@ -97,19 +97,26 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 			notStdout:  []string{"additionalContext", "should be dropped on droid"},
 		},
 		{
-			name:  "gemini-before-file-tool blocks a write (BeforeTool, no diff/context channel)",
+			name:  "gemini-before-file-tool blocks a write and folds remediation context into reason",
 			route: "gemini-before-file-tool",
 			register: func() {
 				agenthooks.BeforeFileEdit(func(e agenthooks.FileEditEvent) agenthooks.FileEditVerdict {
 					if e.Agent != agenthooks.AgentGemini || e.FilePath != "/r/x.py" {
 						t.Fatalf("unexpected event: agent=%q path=%q", e.Agent, e.FilePath)
 					}
-					return agenthooks.RejectEditWithContext("ASCA finding in /r/x.py", "context dropped on gemini")
+					if len(e.Changes) == 0 || !strings.Contains(e.Changes[0].After, "eval(") {
+						t.Fatalf("expected proposed content pre-write, got %+v", e.Changes)
+					}
+					return agenthooks.RejectEditWithContext("ASCA finding in /r/x.py", "Run /cx-security-asca to remediate, then retry.")
 				})
 			},
-			stdin:      `{"session_id":"s","tool_name":"write_file","tool_input":{"file_path":"/r/x.py","content":"eval(x)"}}`,
-			wantStdout: []string{`"decision":"deny"`, `ASCA finding in /r/x.py`},
-			notStdout:  []string{"additionalContext", "context dropped on gemini"},
+			stdin: `{"session_id":"s","tool_name":"write_file","tool_input":{"file_path":"/r/x.py","content":"eval(x)"}}`,
+			wantStdout: []string{
+				`"decision":"deny"`,
+				`ASCA finding in /r/x.py`,
+				`Run /cx-security-asca to remediate, then retry.`,
+			},
+			notStdout: []string{"additionalContext"},
 		},
 		{
 			name:  "gemini-before-file-tool approves non-write tools",
