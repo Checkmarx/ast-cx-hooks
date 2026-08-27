@@ -37,10 +37,10 @@ type ShellPreResult = PermissionResult
 // ShellPostEvent is the payload for afterShellExecution hooks (fire-and-forget).
 type ShellPostEvent struct {
 	EventBase
-	Command  string `json:"command"`
-	Output   string `json:"output"`
+	Command  string       `json:"command"`
+	Output   string       `json:"output"`
 	Duration Milliseconds `json:"duration"` // milliseconds
-	Sandbox  bool   `json:"sandbox"`  // command ran in a sandboxed environment
+	Sandbox  bool         `json:"sandbox"`  // command ran in a sandboxed environment
 }
 
 // ShellPostResult is the response type for afterShellExecution hooks (unused by Cursor).
@@ -65,10 +65,10 @@ type MCPPreResult = PermissionResult
 // MCPPostEvent is the payload for afterMCPExecution hooks.
 type MCPPostEvent struct {
 	EventBase
-	ToolName   string `json:"tool_name"`
-	ToolInput  string `json:"tool_input"`  // JSON string
-	ResultJSON string `json:"result_json"` // JSON string
-	Duration   Milliseconds `json:"duration"` // milliseconds
+	ToolName   string       `json:"tool_name"`
+	ToolInput  string       `json:"tool_input"`  // JSON string
+	ResultJSON string       `json:"result_json"` // JSON string
+	Duration   Milliseconds `json:"duration"`    // milliseconds
 }
 
 // MCPPostResult is the response type for afterMCPExecution hooks (unused).
@@ -161,12 +161,12 @@ type SessionStartResult struct {
 // SessionEndEvent is the payload for sessionEnd hooks.
 type SessionEndEvent struct {
 	EventBase
-	SessionID         string `json:"session_id"`
-	Reason            string `json:"reason"` // "completed", "aborted", "error", "window_close", "user_close"
+	SessionID         string       `json:"session_id"`
+	Reason            string       `json:"reason"` // "completed", "aborted", "error", "window_close", "user_close"
 	DurationMS        Milliseconds `json:"duration_ms"`
-	IsBackgroundAgent bool   `json:"is_background_agent"`
-	FinalStatus       string `json:"final_status"`
-	ErrorMessage      string `json:"error_message,omitempty"`
+	IsBackgroundAgent bool         `json:"is_background_agent"`
+	FinalStatus       string       `json:"final_status"`
+	ErrorMessage      string       `json:"error_message,omitempty"`
 }
 
 // SessionEndResult is the response type for sessionEnd hooks (fire-and-forget).
@@ -250,7 +250,7 @@ type ToolFailureEvent struct {
 	WorkDir      string          `json:"cwd"`
 	ErrorMessage string          `json:"error_message"`
 	FailureType  string          `json:"failure_type"` // "error", "timeout", "permission_denied"
-	Duration     Milliseconds    `json:"duration"` // milliseconds
+	Duration     Milliseconds    `json:"duration"`     // milliseconds
 	IsInterrupt  bool            `json:"is_interrupt"`
 }
 
@@ -297,17 +297,17 @@ type SubagentStartResult struct {
 // SubagentStopEvent is the payload for subagentStop hooks.
 type SubagentStopEvent struct {
 	EventBase
-	SubagentType        string   `json:"subagent_type"`
-	Status              string   `json:"status"` // "completed", "error", "aborted"
-	Task                string   `json:"task"`
-	Description         string   `json:"description"`
-	Summary             string   `json:"summary"`
+	SubagentType        string       `json:"subagent_type"`
+	Status              string       `json:"status"` // "completed", "error", "aborted"
+	Task                string       `json:"task"`
+	Description         string       `json:"description"`
+	Summary             string       `json:"summary"`
 	DurationMS          Milliseconds `json:"duration_ms"`
-	MessageCount        int      `json:"message_count"`
-	ToolCallCount       int      `json:"tool_call_count"`
-	LoopCount           int      `json:"loop_count"`
-	ModifiedFiles       []string `json:"modified_files"`
-	AgentTranscriptPath string   `json:"agent_transcript_path"`
+	MessageCount        int          `json:"message_count"`
+	ToolCallCount       int          `json:"tool_call_count"`
+	LoopCount           int          `json:"loop_count"`
+	ModifiedFiles       []string     `json:"modified_files"`
+	AgentTranscriptPath string       `json:"agent_transcript_path"`
 }
 
 // SubagentStopResult is the response type for subagentStop hooks (mirrors StopResult).
@@ -329,7 +329,7 @@ type AgentResponseResult struct{}
 // AgentThoughtEvent is the payload for afterAgentThought hooks (observational).
 type AgentThoughtEvent struct {
 	EventBase
-	Text       string `json:"text"`
+	Text       string       `json:"text"`
 	DurationMS Milliseconds `json:"duration_ms"`
 }
 
