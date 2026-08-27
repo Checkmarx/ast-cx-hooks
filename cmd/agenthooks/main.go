@@ -120,7 +120,7 @@ func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, binary string) 
 		if !containsCommand(arr, cmd) {
 			hooks[e.EventKey] = append(arr, map[string]any{"type": "command", "command": cmd})
 		}
-	case agenthooks.StyleGeminiNested:
+	case agenthooks.StyleGeminiNested, agenthooks.StyleCodexNested:
 		hooks := ensureMap(m, "hooks")
 		arr := toSlice(hooks[e.EventKey])
 		if !containsCommand(arr, cmd) {

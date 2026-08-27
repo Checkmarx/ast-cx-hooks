@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **OpenAI Codex CLI** support with unified hooks for `Stop`, `SubagentStop`,
+  `PreToolUse` (generic gate + `apply_patch` file-write gate), `PostToolUse`
+  (`apply_patch`), and `UserPromptSubmit`, plus a new `codex` platform package
+  and `install.InstallCodex`. Modeled from the published
+  [Codex CLI hooks doc](https://learn.chatgpt.com/docs/hooks) — flagged
+  best-effort in `codex/doc.go` pending verification against a live payload.
+
 ## [1.0.3] - 2026-06-19
 
 ### Added

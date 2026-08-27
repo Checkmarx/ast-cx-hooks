@@ -17,6 +17,10 @@ type ToolConvention struct {
 	FilePathKeys []string // tool_input keys to try, in order, for the edited file path
 	// Diff extracts before/after edit text; nil means this agent reports no diffs.
 	Diff func(toolName string, input json.RawMessage) []FileDiff
+	// FilePathFromDiff derives a file path from the raw patch/diff text when no
+	// FilePathKeys entry matches (e.g. Codex's apply_patch, which has no
+	// separate file_path key). nil means this agent has no such fallback.
+	FilePathFromDiff func(toolName string, input json.RawMessage) string
 }
 
 // Kind classifies a tool name into shell / MCP / builtin, returning the shell
@@ -47,7 +51,8 @@ func (c ToolConvention) IsWrite(toolName string) bool {
 	return false
 }
 
-// FilePath returns the edited file path, trying each configured key in order.
+// FilePath returns the edited file path, trying each configured key in order,
+// then falling back to FilePathFromDiff (when set) if no key matched.
 func (c ToolConvention) FilePath(input json.RawMessage) string {
 	var m map[string]json.RawMessage
 	if json.Unmarshal(input, &m) != nil {
@@ -60,6 +65,9 @@ func (c ToolConvention) FilePath(input json.RawMessage) string {
 				return s
 			}
 		}
+	}
+	if c.FilePathFromDiff != nil {
+		return c.FilePathFromDiff("", input)
 	}
 	return ""
 }
@@ -172,6 +180,226 @@ func ptrOr(primary, secondary *string) string {
 	}
 	return ""
 }
+
+// codexPatchCommand extracts the raw patch body from a Codex apply_patch
+// tool_input. CONFIRMED against a live payload: the patch text is carried
+// under tool_input.command (the same key PreToolUse uses for shell commands),
+// not "input" as originally assumed from public examples. "input" is kept as
+// a fallback in case some Codex CLI versions use that key instead.
+func codexPatchCommand(input json.RawMessage) string {
+	var v struct {
+		Command string `json:"command"`
+		Input   string `json:"input"`
+	}
+	json.Unmarshal(input, &v) //nolint:errcheck
+	if v.Command != "" {
+		return v.Command
+	}
+	return v.Input
+}
+
+// codexFileSection is one file's worth of a Codex apply_patch body: the path
+// from its "*** Add/Update/Delete File:" header and the raw lines that follow
+// it (up to the next file header or "*** End Patch").
+type codexFileSection struct {
+	kind string // "add", "update", or "delete"
+	path string
+	body []string
+}
+
+// codexPatchSections splits a Codex apply_patch body into one section per
+// touched file, following the official apply_patch grammar (the Lark grammar
+// documented in openai/codex's own parser, codex-rs/apply-patch/src/parser.rs):
+//
+//	start: begin_patch environment_id? hunk+ end_patch
+//	begin_patch: "*** Begin Patch" LF
+//	environment_id: "*** Environment ID: " filename LF
+//	end_patch: "*** End Patch" LF?
+//	hunk: add_hunk | delete_hunk | update_hunk
+//	add_hunk: "*** Add File: " filename LF add_line+
+//	delete_hunk: "*** Delete File: " filename LF
+//	update_hunk: "*** Update File: " filename LF change_move? change?
+//	change_move: "*** Move to: " filename LF
+//	change: (change_context | change_line)+ eof_line?
+//	change_context: ("@@" | "@@ " /(.+)/) LF
+//	change_line: ("+" | "-" | " ") /(.+)/ LF
+//	eof_line: "*** End of File" LF
+//
+// "*** Begin/Update/Add/End Patch" and the hunk/line format inside an Update
+// File section are additionally CONFIRMED against live Codex CLI payloads
+// (single- and multi-hunk Update File, Add File with relative and absolute
+// Windows paths — see internal/hookcore/conventions_test.go). "*** Delete
+// File:", "*** Move to:", and "*** Environment ID:" have not been seen in a
+// live payload yet, but their exact marker text and grammar position are
+// confirmed against the grammar above, not guessed. A Delete File section
+// yields no diff either way (codexDiff's delete case); "*** Environment ID:"
+// (a patch-global line before any file section) and "*** Move to:" (consumed
+// immediately after its Update File header, before any hunks) are both
+// recognized and skipped so they can never be misread as hunk body content.
+func codexPatchSections(patch string) []codexFileSection {
+	var sections []codexFileSection
+	var cur *codexFileSection
+	for _, line := range strings.Split(patch, "\n") {
+		switch {
+		case strings.HasPrefix(line, "*** Add File: "):
+			sections = append(sections, codexFileSection{kind: "add", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Add File: "))})
+			cur = &sections[len(sections)-1]
+		case strings.HasPrefix(line, "*** Update File: "):
+			sections = append(sections, codexFileSection{kind: "update", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Update File: "))})
+			cur = &sections[len(sections)-1]
+		case strings.HasPrefix(line, "*** Delete File: "):
+			sections = append(sections, codexFileSection{kind: "delete", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Delete File: "))})
+			cur = &sections[len(sections)-1]
+		case line == "*** End Patch":
+			// Stops the current section so any trailing content after the
+			// marker (e.g. the "" element Split("\n") yields for a patch
+			// ending in a newline) isn't appended to the last file's body.
+			cur = nil
+		case line == "*** Begin Patch",
+			strings.HasPrefix(line, "*** Environment ID: "),
+			strings.HasPrefix(line, "*** Move to: "),
+			line == "*** End of File":
+			// Grammar markers that carry no hunk-body content: Begin Patch is
+			// the envelope open; Environment ID is a patch-global line before
+			// any file section; Move to is consumed right after its Update
+			// File header (rename target, not a diff line); End of File
+			// terminates a change block to flag it reaches EOF.
+		default:
+			if cur != nil {
+				cur.body = append(cur.body, line)
+			}
+		}
+	}
+	return sections
+}
+
+// codexHunkDiffs turns an Update File section's body into one FileDiff per
+// "@@"-delimited hunk. Context lines (leading space) anchor the hunk in both
+// Before and After; "-" lines are removed (Before only); "+" lines are added
+// (After only). This mirrors the V4A/unified-diff convention Codex's
+// apply_patch uses and lets ProposedContent's substring-replace logic locate
+// the hunk in the on-disk file via its context lines, the same way Claude's
+// Edit (old_string/new_string) does.
+func codexHunkDiffs(body []string) []FileDiff {
+	var diffs []FileDiff
+	var before, after strings.Builder
+	flush := func() {
+		if before.Len() > 0 || after.Len() > 0 {
+			diffs = append(diffs, FileDiff{Before: before.String(), After: after.String()})
+		}
+		before.Reset()
+		after.Reset()
+	}
+	for _, line := range body {
+		if strings.HasPrefix(line, "@@") {
+			flush()
+			continue
+		}
+		if line == "" {
+			// A zero-length line is a blank context line lacking even the usual
+			// leading " " marker (some patch producers omit it for empty lines,
+			// and Split("\n") also yields a trailing "" after the final line) —
+			// treat it as shared context so it isn't silently dropped from
+			// both Before and After, which would break the anchor match
+			// against on-disk content that has a real blank line there.
+			before.WriteByte('\n')
+			after.WriteByte('\n')
+			continue
+		}
+		switch line[0] {
+		case '+':
+			after.WriteString(line[1:])
+			after.WriteByte('\n')
+		case '-':
+			before.WriteString(line[1:])
+			before.WriteByte('\n')
+		case ' ':
+			rest := line[1:]
+			before.WriteString(rest)
+			before.WriteByte('\n')
+			after.WriteString(rest)
+			after.WriteByte('\n')
+		default:
+			// Non-standard context line (no leading marker); treat as shared context.
+			before.WriteString(line)
+			before.WriteByte('\n')
+			after.WriteString(line)
+			after.WriteByte('\n')
+		}
+	}
+	flush()
+	return diffs
+}
+
+// codexAddFileContent reconstructs a new file's full content from an Add File
+// section's body by stripping the leading "+" every content line carries.
+func codexAddFileContent(body []string) string {
+	var b strings.Builder
+	for _, line := range body {
+		b.WriteString(strings.TrimPrefix(line, "+"))
+		b.WriteByte('\n')
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// codexDiff handles OpenAI Codex CLI's apply_patch tool. apply_patch's
+// tool_input.command holds a V4A-style patch body that can touch multiple
+// files in one call, each introduced by "*** Add/Update/Delete File: <path>".
+// codexDiff surfaces the diffs for the FIRST file section only (matching
+// codexPatchFilePath's single-representative-path behavior — FileDiff has no
+// per-file grouping, so mixing hunks from multiple files would let
+// ProposedContent apply one file's hunks against another file's disk
+// content). Add File reconstructs the full new content (Before ""); Update
+// File yields one FileDiff per hunk with real before/after text (not raw
+// patch syntax) so ASCA/KICS scan actual source instead of diff markers;
+// Delete File yields no diff.
+func codexDiff(_ string, input json.RawMessage) []FileDiff {
+	sections := codexPatchSections(codexPatchCommand(input))
+	if len(sections) == 0 {
+		return nil
+	}
+	switch sections[0].kind {
+	case "add":
+		return []FileDiff{{Before: "", After: codexAddFileContent(sections[0].body)}}
+	case "update":
+		return codexHunkDiffs(sections[0].body)
+	default: // delete
+		return nil
+	}
+}
+
+// codexPatchFilePath extracts the first file path touched by a Codex
+// apply_patch call, so downstream file-extension-based guardrails (ASCA/KICS)
+// have something to key off even though apply_patch has no dedicated
+// file_path field. A single call can touch multiple files; only the first
+// section's path is returned (see codexDiff for why diffs are likewise
+// scoped to that first file). Returns "" if no file header is present.
+func codexPatchFilePath(_ string, input json.RawMessage) string {
+	sections := codexPatchSections(codexPatchCommand(input))
+	if len(sections) == 0 {
+		return ""
+	}
+	return sections[0].path
+}
+
+var (
+	// CodexTools is the OpenAI Codex CLI tool-naming convention. The shell tool
+	// name (Bash) and MCP prefix (mcp__) are still UNVERIFIED — modeled from
+	// https://learn.chatgpt.com/docs/hooks, assumed to mirror Claude's schema.
+	// apply_patch has no single file_path key (it's a multi-file V4A patch), so
+	// FilePathKeys is empty; FilePath() falls back to codexPatchFilePath. Both
+	// codexPatchFilePath and codexDiff are confirmed against live payloads
+	// (Add File and multi-hunk Update File, relative and absolute Windows
+	// paths) and parse the patch body itself — see codexPatchSections,
+	// codexHunkDiffs, codexAddFileContent in this file.
+	CodexTools = ToolConvention{
+		ShellTools: []string{"Bash"}, MCPPrefix: "mcp__",
+		WriteTools:       []string{"apply_patch"},
+		FilePathKeys:     nil,
+		Diff:             codexDiff,
+		FilePathFromDiff: codexPatchFilePath,
+	}
+)
 
 var (
 	// ClaudeTools is the Claude Code tool-naming convention (Bash + mcp__ + Write/Edit/MultiEdit).

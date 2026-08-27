@@ -37,6 +37,11 @@ func TestWriteHookEntryShapes(t *testing.T) {
 			entry: agenthooks.CatalogEntry{Route: "copilot-cli-stop", EventKey: "Stop", Style: agenthooks.StyleCopilotCLINested},
 			want:  `{"hooks":{"Stop":[{"command":"/bin/myhook copilot-cli-stop","type":"command"}]},"version":1}`,
 		},
+		{
+			name:  "codex-nested",
+			entry: agenthooks.CatalogEntry{Route: "codex-stop", EventKey: "Stop", Style: agenthooks.StyleCodexNested},
+			want:  `{"hooks":{"Stop":[{"hooks":[{"command":"/bin/myhook codex-stop","type":"command"}],"matcher":""}]}}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,7 +160,7 @@ func TestEveryCatalogEntryInstallsToValidJSON(t *testing.T) {
 		}
 		seenStyles[e.Style] = true
 	}
-	for _, s := range []agenthooks.HookStyle{agenthooks.StyleClaudeNested, agenthooks.StyleGeminiNested, agenthooks.StyleFlatCommand, agenthooks.StyleCopilotCLINested} {
+	for _, s := range []agenthooks.HookStyle{agenthooks.StyleClaudeNested, agenthooks.StyleGeminiNested, agenthooks.StyleFlatCommand, agenthooks.StyleCopilotCLINested, agenthooks.StyleCodexNested} {
 		if !seenStyles[s] {
 			t.Errorf("no catalog entry exercises HookStyle %q", s)
 		}

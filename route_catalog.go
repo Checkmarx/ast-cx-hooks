@@ -16,6 +16,13 @@ const (
 	// StyleCopilotCLINested writes {"version":1,"hooks":{EventKey:[{"type":"command","command":...}]}}.
 	// Used by GitHub Copilot CLI (a dedicated hooks file under ~/.copilot/hooks/).
 	StyleCopilotCLINested HookStyle = "copilot-cli-nested"
+	// StyleCodexNested writes {"hooks":{EventKey:[{"matcher":"","hooks":[{"type":"command","command":...}]}]}}.
+	// Used by OpenAI Codex CLI (~/.codex/hooks.json). Byte-identical to
+	// StyleGeminiNested today, but kept as a distinct constant — the same
+	// precedent as StyleCopilotCLINested being kept distinct from
+	// StyleClaudeNested — so Codex's encoding can diverge later (e.g. optional
+	// timeout/async fields) without touching Gemini's code path.
+	StyleCodexNested HookStyle = "codex-nested"
 )
 
 // CatalogEntry maps one unified hook route to the settings-file slot a platform
@@ -91,4 +98,12 @@ var Catalog = []CatalogEntry{
 	{AgentCopilotCLI, "copilot-cli-post-tool-use-failure", ".copilot/hooks/agenthooks.json", "PostToolUseFailure", StyleCopilotCLINested},
 	{AgentCopilotCLI, "copilot-cli-subagent-stop", ".copilot/hooks/agenthooks.json", "SubagentStop", StyleCopilotCLINested},
 	{AgentCopilotCLI, "copilot-cli-user-prompt-submit", ".copilot/hooks/agenthooks.json", "UserPromptSubmit", StyleCopilotCLINested},
+
+	// OpenAI Codex CLI → ~/.codex/hooks.json
+	{AgentCodex, "codex-stop", ".codex/hooks.json", "Stop", StyleCodexNested},
+	{AgentCodex, "codex-pre-tool-use", ".codex/hooks.json", "PreToolUse", StyleCodexNested},
+	{AgentCodex, "codex-pre-file-write", ".codex/hooks.json", "PreToolUse", StyleCodexNested},
+	{AgentCodex, "codex-after-file-write", ".codex/hooks.json", "PostToolUse", StyleCodexNested},
+	{AgentCodex, "codex-user-prompt-submit", ".codex/hooks.json", "UserPromptSubmit", StyleCodexNested},
+	{AgentCodex, "codex-subagent-stop", ".codex/hooks.json", "SubagentStop", StyleCodexNested},
 }

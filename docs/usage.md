@@ -47,6 +47,7 @@ hook categories**, and the library maps them to each platform's native events.
 | Gemini CLI | `~/.gemini/settings.json` | JSON decision / exit `2` |
 | GitHub Copilot (VS Code) | `.github/hooks/*.json` (project-scoped) | nested JSON decision |
 | GitHub Copilot CLI | `~/.copilot/hooks/agenthooks.json` | flat JSON / exit `2` |
+| OpenAI Codex CLI | `~/.codex/hooks.json` | nested JSON decision |
 
 **How it runs:** the agent invokes your compiled binary with a **route** as the first
 argument (e.g. `myhook claude-pre-tool-use`). The binary reads the event JSON from
@@ -319,8 +320,8 @@ agenthooks.AddRoute("claude-pre-tool-use", func() {
 ```
 
 Platform packages: `claude` · `cursor` · `windsurf` · `droid` · `gemini` · `copilot` ·
-`copilotcli`. Each models its agent's full event surface and ships response builders
-(`additionalContext`, tool-input/output rewrite, permission decisions, and more).
+`copilotcli` · `codex`. Each models its agent's full event surface and ships response
+builders (`additionalContext`, tool-input/output rewrite, permission decisions, and more).
 
 `Process` reads stdin, runs the handler, and writes stdout; a stdin parse error exits `0`
 so a bad payload never blocks the agent. `ProcessE` is the same but lets the handler return
@@ -359,8 +360,8 @@ agenthooks install <binary-path>
 
 Writes the correct hook config — in each agent's own shape — into every settings file:
 `~/.claude/settings.json`, `~/.cursor/hooks.json`, `~/.codeium/windsurf/hooks.json`,
-`~/.factory/settings.json`, `~/.gemini/settings.json`, and
-`~/.copilot/hooks/agenthooks.json`.
+`~/.factory/settings.json`, `~/.gemini/settings.json`, `~/.copilot/hooks/agenthooks.json`,
+and `~/.codex/hooks.json`.
 
 `install` is **non-destructive**: it merges into existing settings (preserving your other
 hooks), aborts rather than overwriting a file it cannot parse, and writes a `.bak` backup
@@ -389,6 +390,9 @@ echo '{"status":"completed","loop_count":0,"conversation_id":"t"}' | ./myhook cu
 
 # Copilot CLI pre-tool-use (lowercase tool names + FLAT output)
 echo '{"hook_event_name":"PreToolUse","tool_name":"bash","tool_input":{"command":"rm -rf /"}}' | ./myhook copilot-cli-pre-tool-use
+
+# Codex CLI pre-tool-use (Claude-style nested output)
+echo '{"session_id":"t","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}' | ./myhook codex-pre-tool-use
 ```
 
 Because handlers are plain Go, you can also unit-test them directly — no I/O needed:

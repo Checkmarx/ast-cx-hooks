@@ -20,6 +20,7 @@ const (
 	AgentGemini     AgentID = "gemini"
 	AgentCopilot    AgentID = "copilot"     // VS Code GitHub Copilot extension
 	AgentCopilotCLI AgentID = "copilot-cli" // GitHub Copilot CLI + cloud agent
+	AgentCodex      AgentID = "codex"       // OpenAI Codex CLI
 )
 
 // --- Idle ---
@@ -56,7 +57,10 @@ type AgentIdleEvent struct {
 // For Claude, Droid, and Gemini it checks IsRepeat; for Cursor it checks AutoRetryCount.
 func (e AgentIdleEvent) IsLooping() bool {
 	switch e.Agent {
-	case AgentClaude, AgentDroid, AgentGemini, AgentCopilot:
+	case AgentClaude, AgentDroid, AgentGemini, AgentCopilot, AgentCodex:
+		// Codex: unconfirmed — its published hooks doc does not document a
+		// stop_hook_active-equivalent field on Stop/SubagentStop, so IsRepeat
+		// will decode false until this is verified against a live payload.
 		return e.IsRepeat
 	case AgentCursor:
 		return e.AutoRetryCount >= 3
