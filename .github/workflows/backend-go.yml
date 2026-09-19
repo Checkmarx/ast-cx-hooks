@@ -5,10 +5,7 @@ on:
     branches:
       - master
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,6 +13,10 @@ concurrency:
 
 jobs:
   ci:
+    permissions:
+      id-token: write # Required for AWS OIDC authentication in reusable workflow
+      contents: read
+      pull-requests: write # Required for reusable workflow to post PR comments
     # Revision observed in this repository's reusable CI run 26753308649.
     uses: CheckmarxDev/gh-actions-library/.github/workflows/backend-go.yml@efdba85bb9d948928499014b0c4d22ca88c3b1c3
     with:
