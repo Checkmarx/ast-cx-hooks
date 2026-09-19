@@ -4,8 +4,46 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func TestPatchJSONFileCreatesPrivateSettingsAndBackup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent", "settings.json")
+	if err := patchJSONFile(path, func(m map[string]any) { m["secret"] = "kept" }); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := patchJSONFile(path, func(m map[string]any) { m["added"] = true }); err != nil {
+		t.Fatal(err)
+	}
+	backup, err := os.ReadFile(path + ".bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(backup) != string(original) {
+		t.Fatal("backup does not preserve the original settings")
+	}
+	if runtime.GOOS == "windows" {
+		return // Windows file modes do not represent Unix access permissions.
+	}
+	for name, forbidden := range map[string]os.FileMode{
+		path:               0o077,
+		path + ".bak":      0o077,
+		filepath.Dir(path): 0o027,
+	} {
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&forbidden != 0 {
+			t.Errorf("%s permissions = %04o, forbidden bits = %04o", name, info.Mode().Perm(), forbidden)
+		}
+	}
+}
 
 // cmdFor maps a route to "/bin/cx hooks <route>", mirroring how a consumer CLI
 // wires its own routes into agent config files.
