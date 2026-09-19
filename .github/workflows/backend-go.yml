@@ -1,0 +1,26 @@
+name: backend-go
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    # Revision observed in this repository's reusable CI run 26753308649.
+    uses: CheckmarxDev/gh-actions-library/.github/workflows/backend-go.yml@efdba85bb9d948928499014b0c4d22ca88c3b1c3
+    with:
+      base-branch: 'master'
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      DEV_ACCOUNT_ID: ${{ secrets.DEV_ACCOUNT_ID }}
+      STATIC_CI_ROLE_NAME: ${{ secrets.STATIC_CI_ROLE_NAME }}

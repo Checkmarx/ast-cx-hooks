@@ -1,6 +1,6 @@
 # Checkmarx Agent Hooks
 
-[![CI](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/ci.yml/badge.svg)](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/ci.yml)
+[![CI](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/backend-go.yml/badge.svg)](https://github.com/Checkmarx/ast-cx-hooks/actions/workflows/backend-go.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/Checkmarx/ast-cx-hooks.svg)](https://pkg.go.dev/github.com/Checkmarx/ast-cx-hooks)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Checkmarx/ast-cx-hooks)](https://goreportcard.com/report/github.com/Checkmarx/ast-cx-hooks)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/Checkmarx/ast-cx-hooks)](go.mod)

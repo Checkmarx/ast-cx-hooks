@@ -53,14 +53,23 @@ go build ./...
 go test ./... -race -count=1
 ```
 
-Before opening a PR, run the same checks our [CI workflow](.github/workflows/ci.yml) enforces — a PR that fails any of these will be blocked:
+Before opening a PR, run the checks used by our [reusable CI workflow](.github/workflows/backend-go.yml).
+The Makefile requires Go, a C compiler for the race detector, golangci-lint v2,
+GNU Make, and a POSIX shell (on Windows, use Git Bash or WSL). Fetch the current
+base branch before running incremental lint:
 
 ```bash
-gofmt -l .          # must print nothing — run `gofmt -w .` to fix
-go build ./...      # must compile
-go vet ./...        # must be clean
-go test ./... -race -count=1
+git fetch origin master
+make lint          # formatting plus new lint findings against origin/master
+make build         # build and vet
+make test          # race-enabled tests and cover.out
 ```
+
+`make lint-full` reports the existing lint backlog as well. To compare a different
+base, use `make lint BASE_REV=<revision>`. A missing base revision is an error.
+Standalone security scans still examine the whole repository; incremental lint
+does not suppress security findings. Post-merge and daily Checkmarx scans remain
+separate from PR checks, and Go module publishing uses the release workflow.
 
 To exercise a hook end-to-end, build a binary and pipe a synthetic event to a route (see the [Usage Guide](docs/usage.md#testing-hooks-locally) for per-agent payloads):
 
