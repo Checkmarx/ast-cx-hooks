@@ -22,6 +22,7 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 		stdin      string
 		wantStdout []string
 		notStdout  []string
+		wantEmpty  bool // stdout must be exactly empty (Claude plain approve; see runPreToolUse)
 	}{
 		{
 			name:  "claude-pre-file-write blocks vulnerable write with remediation context",
@@ -55,8 +56,8 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 					return agenthooks.AcceptEdit()
 				})
 			},
-			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Edit","tool_input":{"file_path":"/r/ok.go","old_string":"a","new_string":"b"}}`,
-			wantStdout: []string{`"permissionDecision":"allow"`},
+			stdin:     `{"session_id":"s","cwd":"/r","tool_name":"Edit","tool_input":{"file_path":"/r/ok.go","old_string":"a","new_string":"b"}}`,
+			wantEmpty: true,
 		},
 		{
 			name:  "claude-pre-file-write can ask for confirmation",
@@ -78,8 +79,8 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 					return agenthooks.AcceptEdit()
 				})
 			},
-			stdin:      `{"session_id":"s","cwd":"/r","tool_name":"Bash","tool_input":{"command":"ls"}}`,
-			wantStdout: []string{`"permissionDecision":"allow"`},
+			stdin:     `{"session_id":"s","cwd":"/r","tool_name":"Bash","tool_input":{"command":"ls"}}`,
+			wantEmpty: true,
 		},
 		{
 			name:  "droid-pre-file-write blocks but drops context (no channel for it)",
@@ -318,6 +319,12 @@ func TestBeforeFileEditEndToEnd(t *testing.T) {
 			agenthooks.Dispatch()
 
 			out := stdoutBuf()
+			if tc.wantEmpty {
+				if strings.TrimSpace(out) != "" {
+					t.Fatalf("stdout must be empty for a plain approve, got: %s", out)
+				}
+				return
+			}
 			var anyJSON map[string]any
 			if err := json.Unmarshal([]byte(out), &anyJSON); err != nil {
 				t.Fatalf("stdout is not valid JSON: %q (err=%v)", out, err)

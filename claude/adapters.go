@@ -1,6 +1,12 @@
 package claude
 
-import "github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
+import (
+	"fmt"
+	"os"
+
+	"github.com/Checkmarx/ast-cx-hooks/internal/codec"
+	"github.com/Checkmarx/ast-cx-hooks/internal/hookcore"
+)
 
 // This file owns the translation between Claude's wire types and the unified
 // hookcore vocabulary. The root agenthooks package wires these adapters into a
@@ -38,11 +44,44 @@ func SubagentIdleAdapter(fn hookcore.AgentIdleFunc) (string, func()) {
 	}
 }
 
+// isPlainApprove reports whether out is a bare PreToolUse approve — "allow"
+// with no note, no additionalContext, and no rewritten input.
+func isPlainApprove(out PreToolUseResult) bool {
+	return out.Details != nil && out.Details.Decision == "allow" &&
+		out.Details.DecisionReason == "" && out.Details.ExtraContext == "" && out.Details.RewrittenInput == nil
+}
+
+// runPreToolUse is Claude's PreToolUse runner. Claude Code treats
+// permissionDecision "allow" as "bypass the permission check entirely": it
+// skips permission mode, settings allow/deny rules, and the developer's
+// approval prompt. A clean scan is not consent, so a bare approve writes
+// nothing to stdout and the host's normal permission flow decides. Deny, ask,
+// additionalContext, and an allow that carries updatedInput are still
+// JSON-encoded — a dropped deny is a vulnerability on disk, and a rewrite
+// only applies when the grant travels with it. No os.Exit on the silent
+// path, so in-process Dispatch tests stay alive.
+func runPreToolUse(handler func(PreToolUseEvent) PreToolUseResult) {
+	var in PreToolUseEvent
+	if err := codec.DecodeStdin(&in); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdin decode error: %v\n", err)
+		os.Exit(0)
+	}
+	out := handler(in)
+	if isPlainApprove(out) {
+		return
+	}
+	if err := codec.EncodeStdout(out); err != nil {
+		fmt.Fprintf(os.Stderr, "agenthooks: stdout encode error: %v\n", err)
+		os.Exit(0)
+	}
+}
+
 // preToolDecision maps a unified PreToolUse-style verdict to Claude's
 // PreToolUseResult, honoring the full surface (allow/deny/ask + additionalContext
 // + updatedInput) via the shared Path() classifier. It is the single seam both
 // PreToolUse gates use: the tool-call gate (ToolAdapter) and the pre-file-write
-// gate (FileEditAdapter).
+// gate (FileEditAdapter). A plain allow is still returned as ApproveToolUse();
+// runPreToolUse is what withholds it from stdout.
 func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
 	switch v.Path() {
 	case hookcore.PathAllowWithInput:
@@ -65,7 +104,7 @@ func preToolDecision(v hookcore.ToolVerdict) PreToolUseResult {
 // ToolAdapter handles the unified pre-tool-call hook for Claude (Bash + mcp__*).
 func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 	return "claude-pre-tool-use", func() {
-		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+		runPreToolUse(func(ev PreToolUseEvent) PreToolUseResult {
 			kind, cmd := hookcore.ClaudeTools.Kind(ev.ToolName, ev.ToolInput)
 			v := fn(hookcore.ToolCallEvent{
 				Agent: hookcore.AgentClaude, Kind: kind, Command: cmd, WorkDir: ev.WorkDir,
@@ -81,10 +120,11 @@ func ToolAdapter(fn hookcore.ToolCallFunc) (string, func()) {
 // (PostToolUse, after the write has landed), this fires BEFORE the write and can
 // DENY it — the route a security scanner uses to block a vulnerable change before
 // it reaches disk, optionally injecting remediation context on the deny. Non-write
-// tools are approved untouched so the generic claude-pre-tool-use gate owns them.
+// tools return a plain approve, which runPreToolUse withholds, so the generic
+// claude-pre-tool-use gate owns them.
 func FileEditAdapter(fn hookcore.FileEditFunc) (string, func()) {
 	return "claude-pre-file-write", func() {
-		hookcore.Run(func(ev PreToolUseEvent) PreToolUseResult {
+		runPreToolUse(func(ev PreToolUseEvent) PreToolUseResult {
 			if !hookcore.ClaudeTools.IsWrite(ev.ToolName) {
 				return ApproveToolUse()
 			}

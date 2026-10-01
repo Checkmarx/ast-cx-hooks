@@ -289,7 +289,10 @@ func TestRejectAndSuppressPrompt(t *testing.T) {
 func TestApproveToolUseWithContext(t *testing.T) {
 	m := marshalMap(t, ApproveToolUseWithContext("more"))
 	out := m["hookSpecificOutput"].(map[string]interface{})
-	if out["permissionDecision"] != "allow" || out["additionalContext"] != "more" {
+	if _, ok := out["permissionDecision"]; ok {
+		t.Errorf("permissionDecision must be omitted, got %v", out)
+	}
+	if out["additionalContext"] != "more" {
 		t.Errorf("got %v", out)
 	}
 }

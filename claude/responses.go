@@ -27,11 +27,13 @@ func ApproveToolUse() PreToolUseResult {
 	}
 }
 
-// ApproveToolUseWithNote allows the tool call and surfaces a note to the user.
+// ApproveToolUseWithNote surfaces a note without granting the tool call.
+// permissionDecision "allow" would bypass Claude Code's approval prompt, so the
+// note is delivered as additionalContext and the decision stays with the host.
 func ApproveToolUseWithNote(note string) PreToolUseResult {
 	return PreToolUseResult{
 		Details: &ToolPermission{
-			EventName: "PreToolUse", Decision: "allow", DecisionReason: note,
+			EventName: "PreToolUse", ExtraContext: note,
 		},
 	}
 }
@@ -44,11 +46,13 @@ func ApproveToolUseWithInput(updated json.RawMessage) PreToolUseResult {
 	}
 }
 
-// ApproveToolUseWithContext allows the tool call and injects additional context for the agent.
+// ApproveToolUseWithContext injects additional context for the agent without
+// granting the tool call. Same reason as ApproveToolUseWithNote: a grant would
+// skip Claude Code's permission check.
 func ApproveToolUseWithContext(ctx string) PreToolUseResult {
 	return PreToolUseResult{
 		Details: &ToolPermission{
-			EventName: "PreToolUse", Decision: "allow", ExtraContext: ctx,
+			EventName: "PreToolUse", ExtraContext: ctx,
 		},
 	}
 }

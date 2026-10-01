@@ -1,6 +1,7 @@
 package agenthooks_test
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -42,18 +43,46 @@ func TestScenarioDispatchByArg(t *testing.T) {
 		return agenthooks.AllowWithNote("cypher-ok")
 	})
 
-	cases := []struct{ scenario, want string }{
-		{"phoenix", "phoenix-policy"}, // matched scenario
-		{"cypher", "cypher-ok"},       // a different team's logic
-		{"", "default-policy"},        // no key → default
-		{"unknown", "default-policy"}, // unregistered key → default
+	cases := []struct{ scenario, want, notWant string }{
+		{"phoenix", "phoenix-policy", ""},               // matched scenario
+		{"cypher", "cypher-ok", `"permissionDecision"`}, // note survives; the grant does not
+		{"", "default-policy", ""},                      // no key → default
+		{"unknown", "default-policy", ""},               // unregistered key → default
 	}
 	for _, tc := range cases {
 		t.Run("scenario="+tc.scenario, func(t *testing.T) {
-			if out := dispatchToolCall(t, tc.scenario); !strings.Contains(out, tc.want) {
+			out := dispatchToolCall(t, tc.scenario)
+			if !strings.Contains(out, tc.want) {
 				t.Fatalf("scenario %q: stdout %q missing %q", tc.scenario, out, tc.want)
 			}
+			if tc.notWant != "" && strings.Contains(out, tc.notWant) {
+				t.Fatalf("scenario %q: stdout %q must not contain %q", tc.scenario, out, tc.notWant)
+			}
 		})
+	}
+}
+
+// TestClaudePreToolUsePlainAllowIsSilent pins the grant suppression on the
+// tool-call route. A clean allow writes nothing; a rewrite still carries allow
+// so Claude applies updatedInput.
+func TestClaudePreToolUsePlainAllowIsSilent(t *testing.T) {
+	agenthooks.ClearRoutes()
+	agenthooks.BeforeToolCall(func(agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+		return agenthooks.Allow()
+	})
+	if out := dispatchToolCall(t, ""); strings.TrimSpace(out) != "" {
+		t.Fatalf("plain allow must write nothing, got: %s", out)
+	}
+
+	agenthooks.ClearRoutes()
+	agenthooks.BeforeToolCall(func(agenthooks.ToolCallEvent) agenthooks.ToolVerdict {
+		return agenthooks.AllowWithInput(json.RawMessage(`{"command":"ls -la"}`))
+	})
+	out := dispatchToolCall(t, "")
+	for _, want := range []string{`"permissionDecision":"allow"`, `"updatedInput"`, `"ls -la"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rewrite stdout %q missing %q", out, want)
+		}
 	}
 }
 
