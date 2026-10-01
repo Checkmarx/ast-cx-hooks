@@ -148,16 +148,19 @@ func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, binary string) 
 // it back. If the existing file is non-empty but not valid JSON it ABORTS without
 // writing (so user config is never clobbered), and it backs up the original to
 // <path>.bak before modifying it.
+// New settings and backups are owner-only; existing file permissions are preserved.
 func patchJSONFile(path string, patch func(map[string]any)) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	m := map[string]any{}
+	// #nosec G304 G703 -- Path comes from the local user's home and the built-in settings catalog, not hook input.
 	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
 		if err := json.Unmarshal(data, &m); err != nil {
 			return fmt.Errorf("refusing to overwrite %s: existing file is not valid JSON: %w", path, err)
 		}
-		if err := os.WriteFile(path+".bak", data, 0o644); err != nil {
+		// #nosec G304 G703 -- Backup is adjacent to the local user's catalog-selected settings file.
+		if err := os.WriteFile(path+".bak", data, 0o600); err != nil {
 			return fmt.Errorf("writing backup %s.bak: %w", path, err)
 		}
 	}
@@ -166,7 +169,8 @@ func patchJSONFile(path string, patch func(map[string]any)) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(out, '\n'), 0o644)
+	// #nosec G304 G703 -- Writes the same local settings path read above, not a path from hook input.
+	return os.WriteFile(path, append(out, '\n'), 0o600)
 }
 
 func ensureMap(m map[string]any, key string) map[string]any {
@@ -227,7 +231,7 @@ func runBuild() error {
 	}
 
 	outDir := "dist"
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return err
 	}
 
@@ -244,6 +248,7 @@ func runBuild() error {
 		}
 		out := filepath.Join(outDir, name)
 
+		// #nosec G204 G702 -- Local CLI explicitly builds the requested package; fixed executable, no shell, package after --.
 		cmd := exec.Command("go", "build", "-o", out, "--", pkg)
 		cmd.Env = append(os.Environ(),
 			"GOOS="+t.goos,

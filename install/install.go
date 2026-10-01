@@ -173,16 +173,19 @@ func writeHookEntry(m map[string]any, e agenthooks.CatalogEntry, cmd string) {
 // patchJSONFile reads path (creating it if absent), applies patch, and writes it
 // back. If the existing file is non-empty but invalid JSON it aborts without writing
 // (so user config is never clobbered) and backs the original up to <path>.bak.
+// New settings and backups are owner-only; existing file permissions are preserved.
 func patchJSONFile(path string, patch func(map[string]any)) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	m := map[string]any{}
+	// #nosec G304 G703 -- The calling application selects its trusted home; the settings suffix comes from the built-in catalog.
 	if data, err := os.ReadFile(path); err == nil && len(bytes.TrimSpace(data)) > 0 {
 		if err := json.Unmarshal(data, &m); err != nil {
 			return fmt.Errorf("refusing to overwrite %s: existing file is not valid JSON: %w", path, err)
 		}
-		if err := os.WriteFile(path+".bak", data, 0o644); err != nil {
+		// #nosec G304 G703 -- Backup is adjacent to the settings file selected by the calling application.
+		if err := os.WriteFile(path+".bak", data, 0o600); err != nil {
 			return fmt.Errorf("writing backup %s.bak: %w", path, err)
 		}
 	}
@@ -191,7 +194,8 @@ func patchJSONFile(path string, patch func(map[string]any)) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(out, '\n'), 0o644)
+	// #nosec G304 G703 -- Writes the same application-selected settings path read above, not a path from hook input.
+	return os.WriteFile(path, append(out, '\n'), 0o600)
 }
 
 func ensureMap(m map[string]any, key string) map[string]any {

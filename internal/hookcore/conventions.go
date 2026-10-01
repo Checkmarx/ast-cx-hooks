@@ -34,7 +34,7 @@ func (c ToolConvention) Kind(toolName string, input json.RawMessage) (ToolKind, 
 			var v struct {
 				Command string `json:"command"`
 			}
-			json.Unmarshal(input, &v) //nolint:errcheck // absent command is fine
+			_ = json.Unmarshal(input, &v) // Best-effort extraction; an unavailable command remains empty.
 			return ToolKindShell, v.Command
 		}
 	}
@@ -88,7 +88,7 @@ func standardDiff(toolName string, input json.RawMessage) []FileDiff {
 		OldString string `json:"old_string"`
 		NewString string `json:"new_string"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v) // Best-effort extraction preserves available fields and zero-value fallbacks.
 	if toolName == "Edit" || toolName == "MultiEdit" {
 		return []FileDiff{{Before: v.OldString, After: v.NewString}}
 	}
@@ -106,7 +106,7 @@ func droidDiff(toolName string, input json.RawMessage) []FileDiff {
 		Patch     string `json:"patch"`
 		Diff      string `json:"diff"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v) // Best-effort extraction preserves available fields and zero-value fallbacks.
 	switch toolName {
 	case "Edit":
 		return []FileDiff{{Before: v.OldString, After: v.NewString}}
@@ -132,7 +132,7 @@ func cursorDiff(toolName string, input json.RawMessage) []FileDiff {
 		OldString string `json:"old_string"`
 		NewString string `json:"new_string"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v) // Best-effort extraction preserves available fields and zero-value fallbacks.
 	switch toolName {
 	case "Edit", "StrReplace", "EditNotebook", "MultiEdit":
 		return []FileDiff{{Before: v.OldString, After: v.NewString}}
@@ -161,7 +161,7 @@ func cliDiff(toolName string, input json.RawMessage) []FileDiff {
 		OldStr   *string `json:"old_str"`
 		NewStr   *string `json:"new_str"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v) // Best-effort extraction preserves available fields and zero-value fallbacks.
 	if toolName == "edit" {
 		return []FileDiff{{Before: ptrOr(v.OldStr, v.Content), After: ptrOr(v.NewStr, v.Content)}}
 	}
@@ -191,7 +191,7 @@ func codexPatchCommand(input json.RawMessage) string {
 		Command string `json:"command"`
 		Input   string `json:"input"`
 	}
-	json.Unmarshal(input, &v) //nolint:errcheck
+	_ = json.Unmarshal(input, &v) // Best-effort extraction preserves available fields and zero-value fallbacks.
 	if v.Command != "" {
 		return v.Command
 	}
