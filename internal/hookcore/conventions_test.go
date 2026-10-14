@@ -60,7 +60,8 @@ func TestToolConventionIsWrite(t *testing.T) {
 		{ClaudeTools, "Write", true}, {ClaudeTools, "Edit", true}, {ClaudeTools, "MultiEdit", true}, {ClaudeTools, "Create", false},
 		{DroidTools, "Create", true}, {DroidTools, "Edit", true}, {DroidTools, "ApplyPatch", true}, {DroidTools, "Write", false},
 		{GeminiTools, "write_file", true}, {GeminiTools, "replace", true}, {GeminiTools, "replace_in_file", false},
-		{CopilotTools, "createFile", true}, {CopilotTools, "editFiles", true}, {CopilotTools, "Write", false},
+		{CopilotTools, "createFile", true}, {CopilotTools, "editFiles", true}, {CopilotTools, "create_file", true},
+		{CopilotTools, "replace_string_in_file", true}, {CopilotTools, "apply_patch", true}, {CopilotTools, "Write", false},
 		{CopilotCLITools, "create", true}, {CopilotCLITools, "edit", true}, {CopilotCLITools, "Create", false},
 		{CursorTools, "Write", true}, {CursorTools, "Edit", true}, {CursorTools, "StrReplace", true},
 		{CursorTools, "EditNotebook", true}, {CursorTools, "Read", false},
@@ -82,8 +83,11 @@ func TestToolConventionFilePath(t *testing.T) {
 	if got := CopilotTools.FilePath(json.RawMessage(`{"filePath":"/b.ts"}`)); got != "/b.ts" {
 		t.Errorf("copilot filePath: %q", got)
 	}
-	if got := CopilotTools.FilePath(json.RawMessage(`{"file_path":"/snake.ts"}`)); got != "" {
-		t.Errorf("copilot must not read snake_case file_path: %q", got)
+	if got := CopilotTools.FilePath(json.RawMessage(`{"file_path":"/snake.ts"}`)); got != "/snake.ts" {
+		t.Errorf("copilot file_path fallback: %q", got)
+	}
+	if got := CopilotTools.FilePath(json.RawMessage(`{"replacements":[{"filePath":"/nested.go"}]}`)); got != "/nested.go" {
+		t.Errorf("copilot nested filePath: %q", got)
 	}
 	if got := GeminiTools.FilePath(json.RawMessage(`{"path":"/c.py"}`)); got != "/c.py" {
 		t.Errorf("gemini path fallback: %q", got)
@@ -109,6 +113,13 @@ func TestToolConventionChanges(t *testing.T) {
 	// standardDiff: create-style -> content
 	if d := ClaudeTools.Changes("Write", json.RawMessage(`{"content":"hi"}`)); d[0].Before != "" || d[0].After != "hi" {
 		t.Errorf("claude write diff: %+v", d)
+	}
+	// VS Code replace_string_in_file uses camelCase oldString/newString.
+	if d := CopilotTools.Changes("replace_string_in_file", json.RawMessage(`{"filePath":"/a.py","oldString":"a","newString":"b"}`)); len(d) != 1 || d[0].Before != "a" || d[0].After != "b" {
+		t.Errorf("copilot replace diff: %+v", d)
+	}
+	if d := CopilotTools.Changes("create_file", json.RawMessage(`{"filePath":"/a.py","content":"pkg"}`)); len(d) != 1 || d[0].Before != "" || d[0].After != "pkg" {
+		t.Errorf("copilot create diff: %+v", d)
 	}
 	// droidDiff: ApplyPatch -> patch (else diff)
 	if d := DroidTools.Changes("ApplyPatch", json.RawMessage(`{"patch":"@@ -1 +1 @@"}`)); d[0].After != "@@ -1 +1 @@" {

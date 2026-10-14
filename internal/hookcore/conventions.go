@@ -169,6 +169,118 @@ func cliDiff(toolName string, input json.RawMessage) []FileDiff {
 	return []FileDiff{{Before: "", After: ptrOr(v.FileText, v.Content)}}
 }
 
+// copilotDiff reads the VS Code Copilot write payload. The extension sends
+// camelCase tool names and fields (create_file / filePath / oldString) and the
+// older createFile / editFiles shape. Snake_case keys are accepted too so a
+// payload that follows the copilot.PreToolUseEvent examples still scans.
+func copilotDiff(toolName string, input json.RawMessage) []FileDiff {
+	var v struct {
+		Content      *string         `json:"content"`
+		Contents     *string         `json:"contents"`
+		FileText     *string         `json:"file_text"`
+		Code         *string         `json:"code"`
+		OldString    *string         `json:"old_string"`
+		NewString    *string         `json:"new_string"`
+		OldStringAlt *string         `json:"oldString"`
+		NewStringAlt *string         `json:"newString"`
+		OldStr       *string         `json:"old_str"`
+		NewStr       *string         `json:"new_str"`
+		Patch        *string         `json:"patch"`
+		Diff         *string         `json:"diff"`
+		Replacements json.RawMessage `json:"replacements"`
+	}
+	if json.Unmarshal(input, &v) != nil {
+		return nil
+	}
+	if diffs := copilotReplacementDiffs(v.Replacements); len(diffs) > 0 {
+		return diffs
+	}
+	before := firstStringPtr(v.OldString, v.OldStringAlt, v.OldStr)
+	after := firstStringPtr(v.NewString, v.NewStringAlt, v.NewStr)
+	if copilotEditTool(toolName) && (before != nil || after != nil) {
+		return []FileDiff{{Before: derefString(before), After: derefString(after)}}
+	}
+	if toolName == "apply_patch" {
+		return []FileDiff{{Before: "", After: derefString(firstStringPtr(v.Patch, v.Diff, v.Content, v.Code))}}
+	}
+	return []FileDiff{{Before: "", After: derefString(firstStringPtr(v.Content, v.Contents, v.FileText, v.Code, after))}}
+}
+
+func copilotEditTool(toolName string) bool {
+	switch toolName {
+	case "editFiles", "replace_string_in_file", "multi_replace_string_in_file", "edit_notebook_file", "edit", "Edit":
+		return true
+	default:
+		return false
+	}
+}
+
+func copilotReplacementDiffs(raw json.RawMessage) []FileDiff {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var rows []struct {
+		OldString    *string `json:"old_string"`
+		NewString    *string `json:"new_string"`
+		OldStringAlt *string `json:"oldString"`
+		NewStringAlt *string `json:"newString"`
+	}
+	if json.Unmarshal(raw, &rows) != nil || len(rows) == 0 {
+		return nil
+	}
+	diffs := make([]FileDiff, 0, len(rows))
+	for _, row := range rows {
+		before := firstStringPtr(row.OldString, row.OldStringAlt)
+		after := firstStringPtr(row.NewString, row.NewStringAlt)
+		if before == nil && after == nil {
+			continue
+		}
+		diffs = append(diffs, FileDiff{Before: derefString(before), After: derefString(after)})
+	}
+	return diffs
+}
+
+func firstStringPtr(vals ...*string) *string {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// copilotNestedFilePath finds a path nested under replacements[], used when the
+// top-level tool_input has no filePath of its own.
+func copilotNestedFilePath(_ string, input json.RawMessage) string {
+	var v struct {
+		Replacements []map[string]json.RawMessage `json:"replacements"`
+	}
+	if json.Unmarshal(input, &v) != nil {
+		return ""
+	}
+	keys := []string{"filePath", "path", "file_path", "notebookPath"}
+	for _, entry := range v.Replacements {
+		for _, key := range keys {
+			raw, ok := entry[key]
+			if !ok {
+				continue
+			}
+			var s string
+			if json.Unmarshal(raw, &s) == nil && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 // ptrOr returns the dereferenced value of primary when it is non-nil,
 // then secondary when non-nil, and "" otherwise.
 func ptrOr(primary, secondary *string) string {
@@ -421,12 +533,20 @@ var (
 		WriteTools:   []string{"write_file", "replace"},
 		FilePathKeys: []string{"file_path", "path"}, Diff: nil,
 	}
-	// CopilotTools is the VS Code Copilot convention (runTerminalCommand + mcp_ +
-	// createFile/editFiles, camelCase filePath).
+	// CopilotTools is the VS Code Copilot convention. createFile/editFiles is the
+	// original shape; create_file/replace_string_in_file/apply_patch is what the
+	// current VS Code Copilot extension sends. file_path is a fallback for the
+	// snake_case examples in copilot.PreToolUseEvent.
 	CopilotTools = ToolConvention{
 		ShellTools: []string{"runTerminalCommand"}, MCPPrefix: "mcp_",
-		WriteTools:   []string{"createFile", "editFiles"},
-		FilePathKeys: []string{"filePath"}, Diff: standardDiff,
+		WriteTools: []string{
+			"createFile", "editFiles",
+			"create_file", "replace_string_in_file", "multi_replace_string_in_file",
+			"edit_notebook_file", "apply_patch", "insert_edit_into_file",
+		},
+		FilePathKeys:     []string{"filePath", "path", "file_path", "notebookPath"},
+		Diff:             copilotDiff,
+		FilePathFromDiff: copilotNestedFilePath,
 	}
 	// CopilotCLITools is the GitHub Copilot CLI convention (lowercase bash/powershell,
 	// no MCP prefix documented, create/edit). Confirmed against a live payload: the
