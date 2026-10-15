@@ -60,7 +60,9 @@ func TestToolConventionIsWrite(t *testing.T) {
 		{ClaudeTools, "Write", true}, {ClaudeTools, "Edit", true}, {ClaudeTools, "MultiEdit", true}, {ClaudeTools, "Create", false},
 		{DroidTools, "Create", true}, {DroidTools, "Edit", true}, {DroidTools, "ApplyPatch", true}, {DroidTools, "Write", false},
 		{GeminiTools, "write_file", true}, {GeminiTools, "replace", true}, {GeminiTools, "replace_in_file", false},
-		{CopilotTools, "createFile", true}, {CopilotTools, "editFiles", true}, {CopilotTools, "Write", false},
+		{CopilotTools, "createFile", true}, {CopilotTools, "editFiles", true}, {CopilotTools, "create_file", true},
+		{CopilotTools, "replace_string_in_file", true}, {CopilotTools, "Write", true}, {CopilotTools, "Edit", true},
+		{CopilotTools, "read_file", false},
 		{CopilotCLITools, "create", true}, {CopilotCLITools, "edit", true}, {CopilotCLITools, "Create", false},
 		{CursorTools, "Write", true}, {CursorTools, "Edit", true}, {CursorTools, "StrReplace", true},
 		{CursorTools, "EditNotebook", true}, {CursorTools, "Read", false},
@@ -82,8 +84,11 @@ func TestToolConventionFilePath(t *testing.T) {
 	if got := CopilotTools.FilePath(json.RawMessage(`{"filePath":"/b.ts"}`)); got != "/b.ts" {
 		t.Errorf("copilot filePath: %q", got)
 	}
-	if got := CopilotTools.FilePath(json.RawMessage(`{"file_path":"/snake.ts"}`)); got != "" {
-		t.Errorf("copilot must not read snake_case file_path: %q", got)
+	if got := CopilotTools.FilePath(json.RawMessage(`{"file_path":"/snake.ts"}`)); got != "/snake.ts" {
+		t.Errorf("copilot file_path: %q", got)
+	}
+	if got := CopilotTools.FilePath(json.RawMessage(`{"path":"/cli.py"}`)); got != "/cli.py" {
+		t.Errorf("copilot path: %q", got)
 	}
 	if got := GeminiTools.FilePath(json.RawMessage(`{"path":"/c.py"}`)); got != "/c.py" {
 		t.Errorf("gemini path fallback: %q", got)
@@ -116,6 +121,15 @@ func TestToolConventionChanges(t *testing.T) {
 	}
 	if d := DroidTools.Changes("ApplyPatch", json.RawMessage(`{"diff":"fallback"}`)); d[0].After != "fallback" {
 		t.Errorf("droid applypatch diff fallback: %+v", d)
+	}
+	if d := CopilotTools.Changes("replace_string_in_file", json.RawMessage(`{"oldString":"a","newString":"b"}`)); d[0].Before != "a" || d[0].After != "b" {
+		t.Errorf("copilot replace diff: %+v", d)
+	}
+	if d := CopilotTools.Changes("Write", json.RawMessage(`{"content":"hi"}`)); d[0].Before != "" || d[0].After != "hi" {
+		t.Errorf("copilot Write diff: %+v", d)
+	}
+	if d := CopilotTools.Changes("Edit", json.RawMessage(`{"old_str":"A","new_str":"B"}`)); d[0].Before != "A" || d[0].After != "B" {
+		t.Errorf("copilot Edit diff: %+v", d)
 	}
 	// cliDiff: native Copilot CLI payload uses old_str/new_str (not old_string/new_string)
 	if d := CopilotCLITools.Changes("edit", json.RawMessage(`{"old_str":"A","new_str":"B"}`)); d[0].Before != "A" || d[0].After != "B" {

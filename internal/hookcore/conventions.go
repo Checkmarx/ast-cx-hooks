@@ -181,6 +181,93 @@ func ptrOr(primary, secondary *string) string {
 	return ""
 }
 
+// copilotDiff reads the shared Copilot write payload. VS Code sends camelCase
+// (create_file / filePath / oldString). PascalCase PreToolUse on Copilot CLI
+// reports Claude tool names (Write / Edit) and may use path, file_path, content,
+// or old_str/new_str.
+func copilotDiff(toolName string, input json.RawMessage) []FileDiff {
+	var v struct {
+		Content      *string         `json:"content"`
+		Contents     *string         `json:"contents"`
+		FileText     *string         `json:"file_text"`
+		Code         *string         `json:"code"`
+		OldString    *string         `json:"old_string"`
+		NewString    *string         `json:"new_string"`
+		OldStringAlt *string         `json:"oldString"`
+		NewStringAlt *string         `json:"newString"`
+		OldStr       *string         `json:"old_str"`
+		NewStr       *string         `json:"new_str"`
+		Patch        *string         `json:"patch"`
+		Diff         *string         `json:"diff"`
+		Replacements json.RawMessage `json:"replacements"`
+	}
+	if json.Unmarshal(input, &v) != nil {
+		return nil
+	}
+	if diffs := copilotReplacementDiffs(v.Replacements); len(diffs) > 0 {
+		return diffs
+	}
+	before := firstStringPtr(v.OldString, v.OldStringAlt, v.OldStr)
+	after := firstStringPtr(v.NewString, v.NewStringAlt, v.NewStr)
+	if copilotEditTool(toolName) && (before != nil || after != nil) {
+		return []FileDiff{{Before: derefString(before), After: derefString(after)}}
+	}
+	if toolName == "apply_patch" || (copilotEditTool(toolName) && (v.Patch != nil || v.Diff != nil)) {
+		return []FileDiff{{Before: "", After: derefString(firstStringPtr(v.Patch, v.Diff, v.Content, v.Code))}}
+	}
+	return []FileDiff{{Before: "", After: derefString(firstStringPtr(v.Content, v.Contents, v.FileText, v.Code, after))}}
+}
+
+func copilotEditTool(toolName string) bool {
+	switch toolName {
+	case "editFiles", "replace_string_in_file", "multi_replace_string_in_file", "edit_notebook_file", "edit", "Edit":
+		return true
+	default:
+		return false
+	}
+}
+
+func copilotReplacementDiffs(raw json.RawMessage) []FileDiff {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var rows []struct {
+		OldString    *string `json:"old_string"`
+		NewString    *string `json:"new_string"`
+		OldStringAlt *string `json:"oldString"`
+		NewStringAlt *string `json:"newString"`
+	}
+	if json.Unmarshal(raw, &rows) != nil || len(rows) == 0 {
+		return nil
+	}
+	diffs := make([]FileDiff, 0, len(rows))
+	for _, row := range rows {
+		before := firstStringPtr(row.OldString, row.OldStringAlt)
+		after := firstStringPtr(row.NewString, row.NewStringAlt)
+		if before == nil && after == nil {
+			continue
+		}
+		diffs = append(diffs, FileDiff{Before: derefString(before), After: derefString(after)})
+	}
+	return diffs
+}
+
+func firstStringPtr(vals ...*string) *string {
+	for _, v := range vals {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
 // codexPatchCommand extracts the raw patch body from a Codex apply_patch
 // tool_input. CONFIRMED against a live payload: the patch text is carried
 // under tool_input.command (the same key PreToolUse uses for shell commands),
@@ -421,12 +508,19 @@ var (
 		WriteTools:   []string{"write_file", "replace"},
 		FilePathKeys: []string{"file_path", "path"}, Diff: nil,
 	}
-	// CopilotTools is the VS Code Copilot convention (runTerminalCommand + mcp_ +
-	// createFile/editFiles, camelCase filePath).
+	// CopilotTools serves the shared PascalCase hooks.json. VS Code sends
+	// create_file / filePath / oldString. Copilot CLI sends Write / Edit and
+	// path or file_path.
 	CopilotTools = ToolConvention{
 		ShellTools: []string{"runTerminalCommand"}, MCPPrefix: "mcp_",
-		WriteTools:   []string{"createFile", "editFiles"},
-		FilePathKeys: []string{"filePath"}, Diff: standardDiff,
+		WriteTools: []string{
+			"createFile", "editFiles",
+			"create_file", "replace_string_in_file", "multi_replace_string_in_file",
+			"edit_notebook_file", "apply_patch", "insert_edit_into_file",
+			"Write", "Edit", "create", "edit",
+		},
+		FilePathKeys: []string{"filePath", "path", "file_path", "notebookPath"},
+		Diff:         copilotDiff,
 	}
 	// CopilotCLITools is the GitHub Copilot CLI convention (lowercase bash/powershell,
 	// no MCP prefix documented, create/edit). Confirmed against a live payload: the
