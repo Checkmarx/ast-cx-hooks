@@ -21,6 +21,8 @@ jobs:
     runs-on: cx-public-ubuntu-x64
     permissions:
       contents: write # required to create git tags and GitHub releases
+    env:
+      GOPROXY: https://:${{ secrets.ECHO_LIBRARIES_ACCESS_KEY }}@golang.echohq.com
 
     steps:
       - name: Checkout code
